@@ -6,6 +6,10 @@ import {parseHTML} from 'linkedom';
 const code=await readFile(new URL('../extension/extract.js',import.meta.url),'utf8');
 const declarations=await readFile(new URL('../extension/structured-fields.js',import.meta.url),'utf8');
 function extract(html,url){const {document}=parseHTML(html),context=vm.createContext({document,location:new URL(url),URL,Date,Map,Set,JSON,Array,String,RegExp,Boolean});vm.runInContext(declarations,context);return vm.runInContext(code,context);}
+test('TEMU capture keeps all displayed products beyond the old 120 cap',()=>{
+  const cards=Array.from({length:175},(_,i)=>'<article><a href="/goods.html?goods_id='+(601123456789000+i)+'"><img src="https://img.kwcdn.com/'+i+'.jpg" alt="Actual captured title '+i+'"></a><span>$5.99</span><span>'+i+' sold</span></article>').join('');
+  const data=extract('<html><body>United States USD'+cards+'</body></html>','https://www.temu.com/search_result.html?search_key=gloves');assert.equal(data.products.length,175);assert.equal(data.products[174].title,'Actual captured title 174');assert.match(data.products[174].rawText,/174 sold/);
+});
 
 test('reads actual DOM product links, image URLs, price and sold text without counting neighboring cards',()=>{
   const html='<html lang="en"><head><title>Search</title></head><body><header>Ship to United States USD</header><main><article><a href="/blue-bottle-g-601123456789001.html"><img src="https://img.kwcdn.com/blue.jpg" alt="Blue folding bottle"><span>Blue folding bottle</span></a><span>$5.99</span><span>10K+ sold</span><span>400 reviews</span></article><article><a href="/goods.html?goods_id=601123456789002"><img src="https://img.kwcdn.com/red.jpg" alt="Red bottle"><span>Red bottle</span></a><span>$4.50</span><span>2K+ sold</span></article><a href="https://external.example/goods.html?goods_id=601123456789003"><img src="https://img.kwcdn.com/not-a-temu-product.jpg" alt="Other"></a></main></body></html>';

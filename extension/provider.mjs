@@ -44,7 +44,7 @@ export function providerSales(fields=[]){
 export function normalizeProviderPage(page,preferredPeriod='unknown'){
   const capturedAt=page.capturedAt||new Date().toISOString();
   const products=[];
-  for(const value of (page.products||[]).slice(0,120)){
+  for(const value of page.products||[]){
     const identity=temuProductUrl(value.url);if(!identity)continue;
     const observations=providerSales(value.salesFields);
     const period=preferredPeriod;

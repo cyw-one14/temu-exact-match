@@ -70,7 +70,7 @@
     if(existing && existing.rawText.length>=text.length)continue;
     seen.set(product.id,{...product,title,images,imageUrl:images[0],productKeywords:productKeywords(card,product.id),rawText:text,sourceUrl:location.href,capturedAt:result.capturedAt,market,...priceFrom(card),source:'visible-page'});
   }
-  result.products=[...seen.values()].slice(0,120);
+  result.products=[...seen.values()];
   const declared=typeof globalThis.temuDeclaredProducts==='function'?globalThis.temuDeclaredProducts():new Map();
   for(const product of result.products){const data=declared.get(product.id);if(data){product.listingFields=data.fields;product.verifiedImages=data.images;product.declaredImageSource=data.source;}}
   const current=identity(location.href);

@@ -13,7 +13,7 @@
   if(current.pathname!=='/plugin/search-image'){result.state=/login|sign.?in/.test(current.pathname)?'login':'unsupported';result.message='请在特卖数据图搜页面完成登录并返回图片查询';return result;}
   result.queryImageUrl=current.searchParams.get('url')||'';
   const selectedPlatforms=[...document.querySelectorAll('[role="tab"][aria-selected="true"],.ant-tabs-tab-active')].filter(visible).map(text).filter(value=>/^(?:Temu|1688.*|拼多多.*|淘宝|Shein|Shopee|Tiktok|亚马逊|Ozon|美客多|速卖通|Alibaba国际站)$/i.test(value));
-  if(selectedPlatforms.length&&!selectedPlatforms.some(value=>/^Temu$/i.test(value))){result.state='unsupported';result.message='请在图搜页面选择 Temu 标签，再继续同步';return result;}
+  if(selectedPlatforms.length?!selectedPlatforms.some(value=>/^Temu$/i.test(value)):current.searchParams.has('platform')&&!/^temu$/i.test(current.searchParams.get('platform'))){result.state='unsupported';result.message='请在图搜页面选择 Temu 标签，再继续同步';return result;}
   function identity(raw){
     try{const url=new URL(raw,location.href);let id;
       if(url.protocol!=='https:')return null;
@@ -99,7 +99,7 @@
     const value={...product,title,imageUrl,images:[imageUrl],rawText,listingFields:[...fields,...(data?.fields||[])],verifiedImages:data?.images||[],declaredImageSource:data?.source||'',productKeywords:productKeywords(card,fields,product.id),...visiblePrice(card,fields),salesFields,market};
     const previous=seen.get(product.id);if(!previous||salesFields.length>previous.salesFields.length)seen.set(product.id,value);
   }
-  result.products=[...seen.values()].slice(0,120);
+  result.products=[...seen.values()];
   const words=new Map();
   for(const table of document.querySelectorAll('table,[role="table"],[role="grid"]')){
     for(const row of table.querySelectorAll('tbody tr,[role="row"]')){

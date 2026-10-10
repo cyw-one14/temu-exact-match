@@ -387,10 +387,45 @@ test('Top10 renders ranked product links and per-link evidence, updates without 
   providerFixture={...providerFixture,capturedAt:'2026-10-10T04:00:00Z'};document.getElementById('read-provider').click();await settle();assert.equal(comparisonRequests,beforeRequests);assert.equal(leaderSaved.productKeywords.length,1);
   let exportedBlob;const oldCreate=URL.createObjectURL,oldRevoke=URL.revokeObjectURL;
   URL.createObjectURL=blob=>{exportedBlob=blob;return 'blob:fixture';};URL.revokeObjectURL=()=>{};
-  try{document.getElementById('export').click();const data=JSON.parse(await exportedBlob.text());assert.equal(data.version,'0.2.8');assert.equal(data.keywordTopCount,10);assert.equal(data.keywords[0].products.length,10);assert.equal(data.products.length,13);assert.equal(data.keywords[0].products[0].keywordEvidence[0].query,'Late seller phrase');assert.equal(data.products.find(p=>p.id===products[11].id).keywordEvidence[0].capturedAt,'2026-10-10T03:00:00Z');assert.equal(data.imageSearchInput.imageUrl,imageUrl);assert.equal(data.imageSearchInput.title,'Top10 fixture reference');}finally{URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;}
+  try{document.getElementById('export').click();const data=JSON.parse(await exportedBlob.text());assert.equal(data.version,'0.2.9');assert.equal(data.keywordTopCount,10);assert.equal(data.keywords[0].products.length,10);assert.equal(data.products.length,13);assert.equal(data.keywords[0].products[0].keywordEvidence[0].query,'Late seller phrase');assert.equal(data.products.find(p=>p.id===products[11].id).keywordEvidence[0].capturedAt,'2026-10-10T03:00:00Z');assert.equal(data.imageSearchInput.imageUrl,imageUrl);assert.equal(data.imageSearchInput.title,'Top10 fixture reference');}finally{URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;}
   providerFixture={...providerFixture,products:providerFixture.products.map(p=>({...p,productKeywords:[]}))};document.getElementById('read-provider').click();await settle();assert.equal(comparisonRequests,beforeRequests);assert.doesNotMatch(document.querySelector('#keywords .seller-entry').textContent,/Late seller phrase/);
   providerFixture={...providerFixture,products:providerFixture.products.map((p,i)=>i===0?{...p,imageUrl:'https://img.kwcdn.com/top10-changed-product.jpg',title:'Changed original product title'}:p)};document.getElementById('read-provider').click();await settle();assert.ok(comparisonRequests>beforeRequests,'changed product images and titles must still be reviewed');assert.equal(lastSaved.items.find(p=>p.id===products[0].id).title,'Changed original product title');
   assert.equal(createdTabs.length,beforeTabs);
+});
+
+test('continuous collection keeps more than 120 products across replaced DOM windows, pauses and resumes, then reviews without opening detail pages',async()=>{
+  document.getElementById('cancel').click();await settle();
+  const oldSend=chrome.runtime.sendMessage,oldInterval=globalThis.setInterval,oldClear=globalThis.clearInterval,oldNow=Date.now;
+  const timers=new Map();let serial=0,clock=Date.now(),view=0,actions=[];
+  globalThis.setInterval=callback=>{const id={fixtureTimer:++serial};timers.set(id,callback);return id;};
+  globalThis.clearInterval=id=>{if(!timers.delete(id))oldClear(id);};Date.now=()=>clock;
+  const imageUrl='https://img.kwcdn.com/continuous-reference.jpg';
+  const makeProduct=i=>({...fixture.products[0],id:String(601123456780000+i),url:'https://www.temu.com/goods.html?goods_id='+String(601123456780000+i),title:'Captured continuous listing '+i,salesFields:[{label:'已售出',value:String(i)}]});
+  const windows=[Array.from({length:125},(_,i)=>makeProduct(i)),Array.from({length:20},(_,i)=>makeProduct(i+120)),Array.from({length:10},(_,i)=>makeProduct(i+140))];
+  const getPage=()=>({pageUrl:'https://www.temaishuju.com/plugin/search-image?url='+encodeURIComponent(imageUrl),capturedAt:new Date(clock).toISOString(),queryImageUrl:imageUrl,state:'results',products:windows[view],keywords:[],navigation:{supported:true,queryKey:'continuous-original',pageKey:view===2?'page-2':'page-1',position:view?1000:0,height:2000,atBottom:view>0,loading:false,nextKind:view===1?'next':'',nextKey:view===1?'next:2':'',endEvidence:view===2?'没有更多商品了':''}});
+  chrome.runtime.sendMessage=async message=>{
+    if(message.type==='collect-provider')return {ok:true,data:getPage()};
+    if(message.type==='advance-results'){actions.push(message);const action=view===0?'scroll':'next';view++;return {ok:true,data:{action}};}
+    return oldSend(message);
+  };
+  const tick=async()=>{clock+=2000;for(const callback of [...timers.values()])callback();await settle();};
+  try{
+    blockComparisons=true;referenceFixture={...fixture,detail:{id:'601123456789999',title:'Captured collection reference',detailsText:specText,images:[imageUrl]}};
+    const beforeRequests=comparisonRequests,beforeTabs=createdTabs.length;
+    storageListeners[0]({'temuSelection:1':{newValue:{id:'selection-collection',windowId:1,tabId:1,imageUrl,productId:'601123456789999'}}},'session');await settle();
+    await tick();await tick();assert.equal(lastSaved.items.length,140);assert.equal(comparisonRequests,beforeRequests,'capture comes before slow image review');
+    document.getElementById('stop-collection').click();await settle();assert.equal(lastSaved.collection.reason,'manual');
+    document.getElementById('cancel').click();await settle();
+    document.getElementById('resume-collection').click();await settle();
+    clock+=180000;await tick();assert.equal(lastSaved.items.length,150);assert.equal(lastSaved.collection.status,'running');
+    await tick();await tick();assert.equal(lastSaved.collection.reason,'result-end');assert.equal(lastSaved.collection.total,150);assert.equal(lastSaved.collection.pageKeys.length,2);
+    assert.equal(new Set(lastSaved.items.map(item=>item.id)).size,150);assert.ok(lastSaved.items.some(item=>item.id===windows[0][0].id),'earlier virtualized rows are retained');
+    assert.equal(actions.length,2);assert.ok(actions.every(action=>action.queryKey==='continuous-original'));assert.equal(createdTabs.length,beforeTabs+1);assert.match(document.getElementById('collection-status').textContent,/全站覆盖未核实/);
+    windows[2][0]={...windows[2][0],priceText:'$4.12'};await tick();assert.equal(lastSaved.items.find(item=>item.id===windows[2][0].id).priceText,'$4.12');assert.equal(actions.length,2,'passive price refresh never loads more results');assert.equal(lastSaved.collection.status,'paused');assert.equal(lastSaved.collection.reason,'result-end');
+    document.getElementById('cancel').click();await settle();
+    let blob;const oldCreate=URL.createObjectURL;URL.createObjectURL=value=>{blob=value;return 'blob:collection';};
+    try{document.getElementById('export').click();const data=JSON.parse(await blob.text());assert.equal(data.products.length,150);assert.equal(data.siteWideComplete,false);assert.equal(data.collection.total,150);assert.equal(data.collections.length,1);}finally{URL.createObjectURL=oldCreate;}
+  }finally{document.getElementById('cancel').click();await settle();blockComparisons=false;chrome.runtime.sendMessage=oldSend;globalThis.setInterval=oldInterval;globalThis.clearInterval=oldClear;Date.now=oldNow;}
 });
 
 test.after(()=>window.dispatchEvent(new window.Event('pagehide')));

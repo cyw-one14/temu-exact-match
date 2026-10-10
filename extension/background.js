@@ -21,6 +21,9 @@ chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
   if(message.type==='collect-provider'&&sender.url===chrome.runtime.getURL('panel.html')){
     collectProvider(message.tabId).then(data=>sendResponse({ok:true,data})).catch(error=>sendResponse({ok:false,error:error.message}));return true;
   }
+  if(message.type==='advance-results'&&sender.url===chrome.runtime.getURL('panel.html')){
+    advanceResults(message).then(data=>sendResponse({ok:true,data})).catch(error=>sendResponse({ok:false,error:error.message}));return true;
+  }
   return false;
 });
 
@@ -33,6 +36,7 @@ async function collect(tabId,selectedImageUrl){
   const results=await chrome.scripting.executeScript({target:{tabId},files:['structured-fields.js','extract.js']});
   const data=results.at(-1)?.result;
   if(!data)throw new Error('无法读取当前页面，请刷新 TEMU 页面后重试');
+  data.navigation=await resultNavigation(tabId);
   return data;
 }
 
@@ -46,5 +50,20 @@ async function collectProvider(tabId){
   if(url.origin!=='https://www.temaishuju.com')throw new Error('请打开特卖数据的图搜页面');
   const results=await chrome.scripting.executeScript({target:{tabId},files:['structured-fields.js','provider-extract.js']});
   if(!results.at(-1)?.result)throw new Error('图搜页面暂时无法读取，请等待加载后重试');
-  return results.at(-1).result;
+  const data=results.at(-1).result;
+  data.navigation=await resultNavigation(tabId);
+  return data;
+}
+
+async function resultNavigation(tabId){
+  const results=await chrome.scripting.executeScript({target:{tabId},files:['result-navigation.js']});
+  return results.at(-1)?.result;
+}
+async function advanceResults({tabId,queryKey,source}){
+  const tab=await chrome.tabs.get(tabId),url=new URL(tab.url||'https://invalid.local');
+  const valid=source==='provider'?url.origin==='https://www.temaishuju.com'&&url.pathname==='/plugin/search-image':source==='temu'&&url.origin==='https://www.temu.com'&&url.pathname==='/search_result.html';
+  if(!valid)throw new Error('当前标签页已离开本次结果页面，采集已暂停');
+  await resultNavigation(tabId);
+  const results=await chrome.scripting.executeScript({target:{tabId},func:options=>globalThis.temuResultNavigation(options),args:[{advance:true,queryKey}]});
+  return results.at(-1)?.result||{action:'blocked',reason:'navigation-unavailable'};
 }

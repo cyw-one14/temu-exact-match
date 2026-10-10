@@ -29,3 +29,13 @@ test('collection injects bounded public-data helpers into the existing page and 
  assert.equal(response.ok,true);assert.equal(response.data.detail.id,'601123456789001');assert.deepEqual(scripts[0].args,['https://img.kwcdn.com/main.jpg']);assert.deepEqual(scripts[1].files,['structured-fields.js','extract.js']);assert.equal(scripts.every(item=>item.target.tabId===3),true);
  tabUrl='https://attacker.example';
 });
+test('result navigation is panel-only and refuses product pages before injecting any action',async()=>{
+  const sender={id:'test-extension',url:'chrome-extension://test-extension/panel.html'};
+  assert.equal(listener({type:'advance-results',tabId:3,source:'temu'},{...sender,url:'https://www.temu.com/'},()=>{}),false);
+  tabUrl='https://www.temu.com/goods.html?goods_id=601123456789001';const scripts=[];
+  chrome.scripting={executeScript:async options=>{scripts.push(options);return [{result:{action:'scroll'}}];}};
+  const rejected=await new Promise(resolve=>listener({type:'advance-results',tabId:3,source:'temu',queryKey:'x'},sender,resolve));assert.equal(rejected.ok,false);assert.equal(scripts.length,0);
+  tabUrl='https://www.temu.com/search_result.html?search_key=gloves';
+  const response=await new Promise(resolve=>listener({type:'advance-results',tabId:3,source:'temu',queryKey:'bound-original-query'},sender,resolve));assert.equal(response.ok,true);assert.equal(scripts.length,2);assert.deepEqual(scripts[1].args,[{advance:true,queryKey:'bound-original-query'}]);
+  tabUrl='https://attacker.example';
+});

@@ -13,6 +13,13 @@ if(process.argv.includes('--top10')){
   const template=fixture.items[0];
   fixture.items=Array.from({length:13},(_,i)=>({...template,id:'qa-fixture-'+i,title:'界面测试商品 '+(i+1)+'，保留原始标题和词来源（非真实商品数据）',sales:i===12?template.sales:{raw:i===1?'99+ sold':i===2?'0.098K sold':(100-i)+' sold',kind:i===1?'lower-bound':i===2?'approximate':'exact',displayValue:100-i,lowerBound:i===2?null:100-i,exact:i!==1&&i!==2,period:'unknown'},status:i===3?'rule-match':'visual-match',productKeywords:i===0?[{query:'界面测试关键词（非真实商品数据）',productId:'qa-fixture-0',evidence:'关键词：界面测试关键词（非真实商品数据）',pageUrl:'http://127.0.0.1:43211/',capturedAt:template.capturedAt}]:[]}));
 }
+if(process.argv.includes('--collection')){
+  const template=fixture.items[0];
+  fixture.items=Array.from({length:150},(_,i)=>({...template,id:'qa-capture-'+i,title:'界面测试采集商品 '+(i+1)+'（非真实查询数据）',status:'pending',autoAttempt:1,subjectAttempt:1}));
+  fixture.collection={source:'provider',tabId:0,status:'paused',reason:'stalled',total:150,productIds:fixture.items.map(item=>item.id),pageKeys:['界面测试结果页1','界面测试结果页2'],queryKey:'qa-only',query:'界面测试'};
+  fixture.collectionHistory=[];
+  fixture.pages=[{url:'http://127.0.0.1:43211/?qa-page=1'},{url:'http://127.0.0.1:43211/?qa-page=2'}];
+}
 const bootstrap=`const fixture=${JSON.stringify(fixture)}; globalThis.chrome={windows:{getCurrent:async()=>({id:1})},storage:{onChanged:{addListener:()=>{}},session:{get:async()=>({'temuMatch:1':fixture}),set:async()=>{}},local:{get:async()=>({})}},runtime:{openOptionsPage:async()=>{}},tabs:{}}; globalThis.fetch=async()=>({ok:true,json:async()=>({engine:'local',model:{state:'ready',message:'界面测试 · 无真实查询',progress:100}})});await import('/panel.js');`;
 const server=http.createServer(async(req,res)=>{
   const name=new URL(req.url,'http://127.0.0.1:43211').pathname.slice(1);

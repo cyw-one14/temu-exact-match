@@ -10,6 +10,11 @@ const declarations=await readFile(new URL('../extension/structured-fields.js',im
 function extract(html,url='https://www.temaishuju.com/plugin/search-image?url=https%3A%2F%2Fimg.kwcdn.com%2Fa.jpg'){
   const {document}=parseHTML(html),context=vm.createContext({document,location:new URL(url),URL,Date,Map,Set,String,Array,RegExp});vm.runInContext(declarations,context);return vm.runInContext(source,context);
 }
+test('all 175 displayed provider products survive DOM capture and normalization, with real row fields and deduplicated IDs',()=>{
+  const cards=Array.from({length:175},(_,i)=>'<a class="list-item" href="https://www.temu.com/goods.html?goods_id='+(601123456789000+i)+'"><img src="https://img.kwcdn.com/'+i+'.jpg"><div class="title">Captured row '+i+'</div><span class="sold">已售出 '+i+' 件</span></a>').join('');
+  const page=extract('<html><body>'+cards+cards.slice(0,cards.indexOf('</a>')+4)+'</body></html>'),products=normalizeProviderPage(page).products;
+  assert.equal(page.products.length,175);assert.equal(products.length,175);assert.equal(products[174].title,'Captured row 174');assert.equal(products[174].sales.lowerBound,174);
+});
 
 test('visible per-product brand/model/spec columns survive capture and normalization without taking neighboring product fields',()=>{
   const html='<html><body><table><thead><tr><th>Product</th><th>Brand</th><th>Model</th><th>Material</th><th>Price</th></tr></thead><tbody><tr><td><a href="https://www.temu.com/goods.html?goods_id=601123456789001"><img src="https://img.kwcdn.com/a.jpg">Kitchen Gloves</a></td><td>Actual Brand</td><td>G22</td><td>latex</td><td>$13.13</td></tr><tr><td><a href="https://www.temu.com/goods.html?goods_id=601123456789002"><img src="https://img.kwcdn.com/b.jpg">Bottle</a></td><td>Other Brand</td><td>B77</td><td>silicone</td><td>$5.99</td></tr></tbody></table></body></html>';
