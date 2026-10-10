@@ -1,6 +1,6 @@
 import {SPEC_KEYS,parseSales,rankMatches,isProductMatch,keywordMetrics,bestSellerKeywords,listingKeywordEvidence,listingSpecs,titleQuantity} from './core.mjs';
 import {titleMatchEvidence} from './title-match.mjs';
-import {officialImage,providerSearchURL,normalizeProviderPage} from './provider.mjs';
+import {officialImage,providerSearchURL,providerListingTitle,normalizeProviderPage} from './provider.mjs';
 import {priceObservation,priceKindLabel} from './prices.mjs';
 import {listingMetadata,LISTING_LABELS} from './listing.mjs';
 
@@ -193,6 +193,14 @@ function render(){
   $('reference-name').textContent=state.profile?.name||'待识别产品';
   $('reference-description').textContent=state.referenceContext?.message||state.profile?.description||'工具会自动比对图片；网页商品还会自动读取原商品信息。';
   renderKeywords();
+  const input=state.providerJob?.submittedInput;
+  $('provider-input').hidden=!input;
+  if(input){
+    $('provider-input-image').src=safeImage(input.imageUrl||state.referenceImage);
+    $('provider-input-title').textContent='提交原标题：'+(input.title||'未读取；第三方可能使用图片检索结果推导标题，候选可能不相关');
+    $('provider-input-id').textContent='所选商品 ID：'+(input.productId||'未读取')+' · 标题来源：'+({'public-jsonld':'商品公开结构化标题','public-microdata':'商品公开字段标题','product-title-element':'商品标题元素','current-product-heading':'当前商品标题','current-document-title':'当前页面标题','enclosing-product-link':'所属商品链接','image-alt':'图片说明','captured-product':'已打开页面的同 ID 商品信息'}[input.titleSource]||'未记录');
+    $('provider-input-link').href=input.imageUrl||'';$('provider-input-link').hidden=!input.imageUrl;
+  }
   $('results-section').hidden=!state.items.length&&!state.lastRun;
   const exact=rankMatches(state.items),pending=state.items.filter(item=>!isProductMatch(item)&&item.status!=='different'),different=state.items.filter(item=>item.status==='different');
   const colorRuleCount=exact.filter(item=>item.status==='rule-match').length;
@@ -273,13 +281,20 @@ async function startProvider(){
   stopProviderWatch();
   const current=state;
   const selection=state.selection||{};
+  // Resolve the real title from the already open product/card before dispatch.
+  // The provider's Temu tab uses this title to retrieve candidates.
+  if(selection.productId&&selection.tabId)await ensureReferenceContext();
+  if(state!==current||queuedSelection)return;
   const imageUrl=officialImage(selection.imageUrl||state.referenceImage);
-  const url=providerSearchURL({...selection,imageUrl});
+  const captured=state.referenceContext?.productId===selection.productId?state.referenceContext:null;
+  const capturedTitle=providerListingTitle(captured?.title);
+  const title=capturedTitle||providerListingTitle(selection.title),titleSource=capturedTitle?'captured-product':selection.titleSource||'';
+  const url=providerSearchURL({...selection,imageUrl,title});
   const tab=await chrome.tabs.create({url,active:true,windowId});
   if(state!==current)return;
-  state.providerJob={tabId:tab.id,selectionId:selection.id||'upload-'+Date.now(),expectedImageUrl:imageUrl,manualUpload:!imageUrl,startedAt:new Date().toISOString(),lastFingerprint:''};
-  $('provider-status').textContent=imageUrl?'已提交网页图片，正在等待图搜页面结果。需要登录或验证时请在该页面完成。':'请在打开的图搜页上传同一张本地图片，结果出现后点击“读取 / 继续同步图搜结果”。';
-  await save();watchProvider();
+  state.providerJob={tabId:tab.id,selectionId:selection.id||'upload-'+Date.now(),expectedImageUrl:imageUrl,manualUpload:!imageUrl,submittedInput:{imageUrl,title:new URL(url).searchParams.get('title')||'',titleSource,productId:selection.productId||'',productIdSource:selection.productIdSource||'',sourcePageUrl:selection.pageUrl||'',submittedUrl:url},startedAt:new Date().toISOString(),lastFingerprint:''};
+  $('provider-status').textContent=imageUrl?(title?'已提交所选图片与原标题，正在等待图搜页面结果。':'已提交所选图片，但未读取到原标题；第三方可能推导无关检索词，请查看本次查询输入。')+'需要登录或验证时请在该页面完成。':'请在打开的图搜页上传同一张本地图片，结果出现后点击“读取 / 继续同步图搜结果”。';
+  render();await save();watchProvider();
 }
 function providerReviewKey(product){
   const listing=listingMetadata({title:product.title,text:product.detailsText||product.rawText||'',structuredSpecs:product.structuredSpecs,listingFields:product.listingFields});
@@ -358,7 +373,7 @@ async function acceptSelection(value){
   if(selectionProcessing)return;
   selectionProcessing=true;
   try{while(queuedSelection){
-    const selected=queuedSelection;queuedSelection=null;stopProviderWatch();
+    const selected=queuedSelection;queuedSelection=null;cancelled=false;stopProviderWatch();
     autoPending=false;autoPaused=false;
     state={...emptyState(),referenceImage:selected.imageUrl,selection:selected,profile:{name:selected.title||'网页选中商品',description:'已提取网页商品图片，结果出现后自动核对。'}};
     for(const key of SPEC_KEYS)$('spec-'+key).value='';
@@ -584,7 +599,7 @@ $('settings').addEventListener('click',()=>chrome.runtime.openOptionsPage());
 $('result-sort').addEventListener('change',render);
 $('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('模型正在加载，完成后可以识别图片。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.2.7',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'only-loaded-pages',matchingPolicy:state.matchingPolicy,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,keywordEvidence:isProductMatch(item)&&item.status!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.2.8',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'only-loaded-pages',matchingPolicy:state.matchingPolicy,imageSearchInput:state.providerJob?.submittedInput||null,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,keywordEvidence:isProductMatch(item)&&item.status!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });

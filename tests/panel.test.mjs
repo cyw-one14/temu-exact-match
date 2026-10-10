@@ -349,6 +349,19 @@ test('dissimilar titles still become matches when their subjects match, with no 
   assert.equal(lastSaved.items[0].status,'visual-match');assert.equal(lastSaved.items[0].titleEvidence.group,'dissimilar');assert.match(document.getElementById('exact-results').textContent,/\$3.75/);assert.equal(createdTabs.length,before);
 });
 
+test('image-search dispatch resolves the existing-page product title before opening the provider and shows the actual input without model calls',async()=>{
+  stagedFixture=false;fastMock=false;attentionMock=false;instanceMock=false;inferredMock=false;
+  const title='3 pairs Thick Latex Kitchen Gloves',id='601123456789999',imageUrl='https://img.kwcdn.com/product/fancy/3a9883af-7884-417d-b850-0599c6430eb2.jpg';
+  referenceFixture={...fixture,detail:{...fixture.products[0],id,title,detailsText:title,rawText:title,variantAmbiguous:false}};
+  const before=createdTabs.length,requests=comparisonRequests;
+  storageListeners[0]({'temuSelection:1':{newValue:{id:'selection-real-input',windowId:1,tabId:1,imageUrl,productId:id,title:'商品图片'}}},'session');await settle();
+  const url=new URL(createdTabs.at(-1).url);assert.equal(url.searchParams.get('url'),imageUrl);assert.equal(url.searchParams.get('title'),title);assert.equal(url.searchParams.get('goodsId'),id);assert.equal(createdTabs.length,before+1);assert.equal(comparisonRequests,requests);
+  assert.equal(document.getElementById('provider-input').hidden,false);assert.equal(document.getElementById('provider-input-image').src,imageUrl);assert.match(document.getElementById('provider-input-title').textContent,/3 pairs Thick Latex Kitchen Gloves/);assert.equal(lastSaved.providerJob.submittedInput.titleSource,'captured-product');
+  referenceFixture={...fixture,detail:undefined,products:[]};
+  storageListeners[0]({'temuSelection:1':{newValue:{id:'selection-card-title-fallback',windowId:1,tabId:1,imageUrl,productId:id,title:'Actual card cleaning gloves',titleSource:'product-title-element'}}},'session');await settle();assert.equal(new URL(createdTabs.at(-1).url).searchParams.get('title'),'Actual card cleaning gloves');
+  storageListeners[0]({'temuSelection:1':{newValue:{id:'selection-no-real-title',windowId:1,tabId:1,imageUrl,productId:id,title:'商品图片'}}},'session');await settle();assert.equal(new URL(createdTabs.at(-1).url).searchParams.has('title'),false);assert.match(document.getElementById('provider-status').textContent,/未读取到原标题/);assert.equal(comparisonRequests,requests);
+});
+
 test('Top10 renders ranked product links and per-link evidence, updates without rechecking images and exports all products',async()=>{
   stagedFixture=false;fastMock=false;attentionMock=false;instanceMock=false;inferredMock=false;batchSize=12;
   const imageUrl='https://img.kwcdn.com/top10-reference.jpg';
@@ -374,7 +387,7 @@ test('Top10 renders ranked product links and per-link evidence, updates without 
   providerFixture={...providerFixture,capturedAt:'2026-10-10T04:00:00Z'};document.getElementById('read-provider').click();await settle();assert.equal(comparisonRequests,beforeRequests);assert.equal(leaderSaved.productKeywords.length,1);
   let exportedBlob;const oldCreate=URL.createObjectURL,oldRevoke=URL.revokeObjectURL;
   URL.createObjectURL=blob=>{exportedBlob=blob;return 'blob:fixture';};URL.revokeObjectURL=()=>{};
-  try{document.getElementById('export').click();const data=JSON.parse(await exportedBlob.text());assert.equal(data.version,'0.2.7');assert.equal(data.keywordTopCount,10);assert.equal(data.keywords[0].products.length,10);assert.equal(data.products.length,13);assert.equal(data.keywords[0].products[0].keywordEvidence[0].query,'Late seller phrase');assert.equal(data.products.find(p=>p.id===products[11].id).keywordEvidence[0].capturedAt,'2026-10-10T03:00:00Z');}finally{URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;}
+  try{document.getElementById('export').click();const data=JSON.parse(await exportedBlob.text());assert.equal(data.version,'0.2.8');assert.equal(data.keywordTopCount,10);assert.equal(data.keywords[0].products.length,10);assert.equal(data.products.length,13);assert.equal(data.keywords[0].products[0].keywordEvidence[0].query,'Late seller phrase');assert.equal(data.products.find(p=>p.id===products[11].id).keywordEvidence[0].capturedAt,'2026-10-10T03:00:00Z');assert.equal(data.imageSearchInput.imageUrl,imageUrl);assert.equal(data.imageSearchInput.title,'Top10 fixture reference');}finally{URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;}
   providerFixture={...providerFixture,products:providerFixture.products.map(p=>({...p,productKeywords:[]}))};document.getElementById('read-provider').click();await settle();assert.equal(comparisonRequests,beforeRequests);assert.doesNotMatch(document.querySelector('#keywords .seller-entry').textContent,/Late seller phrase/);
   providerFixture={...providerFixture,products:providerFixture.products.map((p,i)=>i===0?{...p,imageUrl:'https://img.kwcdn.com/top10-changed-product.jpg',title:'Changed original product title'}:p)};document.getElementById('read-provider').click();await settle();assert.ok(comparisonRequests>beforeRequests,'changed product images and titles must still be reviewed');assert.equal(lastSaved.items.find(p=>p.id===products[0].id).title,'Changed original product title');
   assert.equal(createdTabs.length,beforeTabs);

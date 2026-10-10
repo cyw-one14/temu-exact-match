@@ -9,7 +9,7 @@ chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
     // Call before any await so the content-script click keeps its user gesture.
     const opening=chrome.sidePanel.open({windowId:sender.tab.windowId});
     opening.then(async()=>{
-      const selection={id:crypto.randomUUID(),windowId:sender.tab.windowId,tabId:sender.tab.id,imageUrl:officialImage(message.selection.imageUrl),productId:/^\d{6,25}$/.test(message.selection.productId||'')?message.selection.productId:'',title:String(message.selection.title||'').slice(0,400),pageUrl:sender.tab.url};
+      const selection={id:crypto.randomUUID(),windowId:sender.tab.windowId,tabId:sender.tab.id,imageUrl:officialImage(message.selection.imageUrl),productId:/^\d{6,25}$/.test(message.selection.productId||'')?message.selection.productId:'',title:String(message.selection.title||'').slice(0,400),titleSource:String(message.selection.titleSource||'').slice(0,60),productIdSource:String(message.selection.productIdSource||'').slice(0,60),pageUrl:sender.tab.url};
       await chrome.storage.session.set({['temuSelection:'+sender.tab.windowId]:selection});sendResponse({ok:true});
     }).catch(error=>sendResponse({ok:false,error:'打开侧栏失败：'+error.message}));
     return true;

@@ -22,6 +22,7 @@
     <p class="hint">在 TEMU 商品图片右上角点击“查同款”，自动取图并打开图搜。网页图片地址会交给特卖数据查询，请在图搜页选择美国站。</p>
     <div class="actions"><button id="provider-search" class="primary" type="button">打开选品助手图搜</button><button id="read-provider" type="button">读取 / 继续同步图搜结果</button><button id="stop-provider" class="quiet" type="button" hidden>暂停同步</button></div>
     <p id="provider-status" class="hint">等待选图。上传的本地图片可在图搜页正常上传，无需 F12。</p>
+    <details id="provider-input" hidden><summary>本次查询图片与原标题</summary><img id="provider-input-image" alt="实际提交的查询图片"><p id="provider-input-title" class="hint"></p><p id="provider-input-id" class="product-note"></p><a id="provider-input-link" target="_blank" rel="noopener noreferrer">查看所选原图 ↗</a><p class="hint">第三方 Temu 标签会使用标题检索候选；左上角展示所选图片不代表候选均由图片匹配得到。专业版横幅中的图片不属于当前可读取商品列表。</p></details>
   </section>
   <div id="status" class="status" role="status" aria-live="polite">上传图片，然后读取 TEMU 页面或开始检索。</div>
   <button id="cancel" type="button" hidden>停止本次检索</button>

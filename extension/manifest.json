@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TEMU 完全同款助手",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "自动提取商品主体并比对同款，读取 TEMU 美国站真实价格与原始标题，同时提供销量及来源关键词。",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -15,7 +15,7 @@
     "https://www.temaishuju.com/*",
     "http://127.0.0.1:43187/*"
   ],
-  "content_scripts": [{"matches":["https://www.temu.com/*"],"js":["image-buttons.js"],"run_at":"document_idle"}],
+  "content_scripts": [{"matches":["https://www.temu.com/*"],"js":["structured-fields.js","image-buttons.js"],"run_at":"document_idle"}],
   "background": {
     "service_worker": "background.js",
     "type": "module"

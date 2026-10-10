@@ -21,6 +21,8 @@ test('provider navigation encodes image URLs without sending base64 or guessing 
   const url=new URL(providerSearchURL({imageUrl:'https://img.kwcdn.com/a.jpg?x=1&y=2',productId:'601123456789001',title:'A & B'}));
   assert.equal(url.searchParams.get('url'),'https://img.kwcdn.com/a.jpg?x=1&y=2');assert.equal(url.searchParams.get('title'),'A & B');assert.equal(url.searchParams.has('region'),false);
   assert.equal(url.searchParams.get('platform'),'temu');
+  assert.equal(new URL(providerSearchURL({imageUrl:'https://img.kwcdn.com/a.jpg',title:'商品图片'})).searchParams.has('title'),false);
+  assert.equal(new URL(providerSearchURL({imageUrl:'https://img.kwcdn.com/a.jpg',title:'TEMU 商品 601123456789001'})).searchParams.has('title'),false);
   assert.throws(()=>providerSearchURL({imageUrl:'https://img.kwcdn.com.attacker.example/a.jpg'}));
 });
 test('provider sales preserve their labeled windows and reject reviews, growth and revenue',()=>{

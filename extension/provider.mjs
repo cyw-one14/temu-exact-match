@@ -5,13 +5,17 @@ export const PROVIDER_ORIGIN='https://www.temaishuju.com';
 export function officialImage(raw){
   try{const url=new URL(raw);return url.protocol==='https:'&&!url.username&&!url.password&&(!url.port||url.port==='443')&&(url.hostname==='kwcdn.com'||url.hostname.endsWith('.kwcdn.com')||url.hostname==='temu.com'||url.hostname.endsWith('.temu.com'))?url.href:'';}catch{return '';}
 }
+export function providerListingTitle(value){
+  const title=String(value||'').replace(/\s+/g,' ').trim();
+  return !title||/^(?:temu|TEMU 商品 \d+|image|photo|picture|product(?: image| photo)?|商品图片|产品图片|图片|主图|thumbnail)(?:\s*\d+)?$/i.test(title)||/^(?:temu\s*[|:-]\s*(?:shop|explore)|explore the latest)/i.test(title)?'':title.slice(0,400);
+}
 export function providerSearchURL(selection={}){
   const url=new URL('/plugin/search-image',PROVIDER_ORIGIN);
   url.searchParams.set('platform','temu');
   if(selection.imageUrl){const image=officialImage(selection.imageUrl);if(!image)throw new Error('请选择 TEMU 商品图片');url.searchParams.set('url',image);url.searchParams.set('from','url');}
   // Region codes belong to the provider. Do not guess a code from a country name.
   if(/^\d{6,25}$/.test(selection.productId||''))url.searchParams.set('goodsId',selection.productId);
-  if(selection.title)url.searchParams.set('title',String(selection.title).slice(0,400));
+  const title=providerListingTitle(selection.title);if(title)url.searchParams.set('title',title);
   return url.href;
 }
 export function providerSales(fields=[]){

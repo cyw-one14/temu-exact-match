@@ -21,13 +21,15 @@ globalThis.temuDeclaredProducts=()=>{
     for(const property of Array.isArray(declaration.additionalProperty)?declaration.additionalProperty:[])if(property&&['string','number'].includes(typeof property.value)&&/^(?:brand|model|material|size|dimensions|capacity|quantity|number of pieces|color|colour|品牌|型号|材质|尺寸|容量|数量|颜色)$/i.test(clean(property.name)))fields.push({label:clean(property.name),value:clean(property.value),source:'public-jsonld',productId:id,sourceUrl:location.href});
     const declared=Array.isArray(declaration.image)?declaration.image:declaration.image?[declaration.image]:[],images=[];
     for(const image of declared){try{const u=new URL(typeof image==='string'?image:image.url,location.href);if(u.protocol==='https:'&&!u.username&&!u.password&&(!u.port||u.port==='443')&&u.hostname.endsWith('.kwcdn.com'))images.push(u.href);}catch{}}
-    const previous=map.get(id)||{fields:[],images:[],source:'public-jsonld',productId:id};previous.fields.push(...fields);previous.images=[...new Set([...previous.images,...images])].slice(0,6);map.set(id,previous);
+    const previous=map.get(id)||{fields:[],images:[],source:'public-jsonld',productId:id};previous.fields.push(...fields);previous.images=[...new Set([...previous.images,...images])].slice(0,6);if(clean(declaration.name)){previous.name=clean(declaration.name);previous.nameSource='public-jsonld';}map.set(id,previous);
   }
   // Public microdata is another explicit declaration, scoped to its own Product.
   for(const scope of [...document.querySelectorAll('[itemscope][itemtype*="schema.org/Product"]')].slice(0,120)){
     const link=[...scope.querySelectorAll('[itemprop="url"]')].find(node=>node.closest('[itemscope][itemtype*="schema.org/Product"]')===scope),id=identity(scope.getAttribute('itemid')||link?.getAttribute('href')||link?.getAttribute('content'));
     if(!/^\d{6,25}$/.test(id))continue;
     const data=map.get(id)||{fields:[],images:[],source:'public-jsonld',productId:id};
+    const name=[...scope.querySelectorAll('[itemprop="name"]')].find(node=>node.closest('[itemscope][itemtype*="schema.org/Product"]')===scope&&!node.closest('[itemprop="brand"]'));
+    if(name){const value=clean(name.getAttribute('content')||name.textContent);if(value){data.name=value;data.nameSource='public-microdata';}}
     for(const [key,label]of Object.entries({brand:'Brand',model:'Model',material:'Material',size:'Size',numberOfItems:'Quantity',color:'Color'}))for(const node of scope.querySelectorAll('[itemprop="'+key+'"]')){
       if(node.closest('[itemscope][itemtype*="schema.org/Product"]')!==scope)continue;
       const value=clean(node.getAttribute('content')||node.querySelector('[itemprop="name"]')?.getAttribute('content')||node.querySelector('[itemprop="name"]')?.textContent||node.textContent);
