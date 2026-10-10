@@ -1,0 +1,23 @@
+# Dependencies, downloaded models, local runtimes and generated files
+node_modules/
+.cache/
+dist/
+test-output/
+__pycache__/
+*.py[cod]
+*.log
+
+# Local configuration, credentials and process records
+.local-*
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.pfx
+*.p12
+
+# OS artifacts
+.DS_Store
+Thumbs.db

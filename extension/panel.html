@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TEMU 完全同款助手</title><link rel="stylesheet" href="panel.css"></head>
+<body>
+<header class="app-header"><div><h1>TEMU 同款助手</h1><p>美国站 · 自动比较同款价格与标题</p></div><button id="settings" class="quiet" type="button">设置</button></header>
+<main>
+  <section class="upload-section">
+    <label for="upload" class="upload-label"><span class="upload-symbol">＋</span><strong>上传产品图片</strong><span>PNG / JPG / WebP · 最大 8 MB</span><input id="upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
+    <div id="reference" class="reference" hidden><img id="reference-image" alt="用户上传的产品"><div><strong id="reference-name">待识别产品</strong><p id="reference-description"></p><button id="replace-image" class="quiet" type="button">更换图片</button></div></div>
+    <details class="specifications"><summary>页面信息 · 自动读取 / 可选备注</summary><p class="hint">同款以图片商品主体一致为标准。标题、品牌、型号、材质、尺寸和数量仅作页面信息提示，不参与同款排除。</p><div class="spec-grid">
+      <label>品牌<input id="spec-brand" placeholder="如有标注，请照实填写"></label>
+      <label>型号<input id="spec-model" placeholder="如 A123"></label>
+      <label>材质<input id="spec-material" placeholder="使用站内英文规格更易核对"></label>
+      <label>尺寸 / 容量<input id="spec-dimensions" placeholder="如 500ml"></label>
+      <label>数量 / 套装<input id="spec-quantity" placeholder="如 1pc"></label>
+    </div></details>
+    <div class="actions"><button id="analyze" class="primary" type="button" disabled>用图片查找同款</button><button id="collect" type="button">读取当前 TEMU 页</button></div>
+    <div class="service-line"><span id="service-status">检查本机识别服务…</span><button id="prepare-model" class="quiet" type="button" hidden>加载模型</button></div>
+  </section>
+  <section class="provider-section">
+    <div class="section-header"><h2>选品助手图搜</h2><span>真实页面结果</span></div>
+    <p class="hint">在 TEMU 商品图片右上角点击“查同款”，自动取图并打开图搜。网页图片地址会交给特卖数据查询，请在图搜页选择美国站。</p>
+    <div class="actions"><button id="provider-search" class="primary" type="button">打开选品助手图搜</button><button id="read-provider" type="button">读取 / 继续同步图搜结果</button><button id="stop-provider" class="quiet" type="button" hidden>暂停同步</button></div>
+    <p id="provider-status" class="hint">等待选图。上传的本地图片可在图搜页正常上传，无需 F12。</p>
+  </section>
+  <div id="status" class="status" role="status" aria-live="polite">上传图片，然后读取 TEMU 页面或开始检索。</div>
+  <button id="cancel" type="button" hidden>停止本次检索</button>
+  <section id="results-section" hidden>
+    <div class="section-header"><h2>同款价格与标题</h2><span id="count"></span></div>
+    <label for="result-sort" class="visually-hidden">结果排序</label><select id="result-sort"><option value="match">主体匹配程度优先</option><option value="price">页面 USD 价格 / 起价从低到高</option><option value="sales">页面销量从高到低（按口径分组）</option></select>
+    <p id="scope" class="hint"></p>
+    <div id="exact-results"></div>
+    <div id="empty" class="empty" hidden><strong>暂无已确认的主体同款</strong><p>工具自动判断后会在这里展示真实标题、价格与商品链接。</p></div>
+    <details id="pending-section"><summary id="pending-count">自动处理 / 无法确认</summary><div id="pending-results"></div></details>
+    <details id="excluded-section"><summary id="excluded-count">已排除商品</summary><div id="excluded-results"></div></details>
+    <button id="compare-collected" type="button" disabled>重新自动核对</button>
+    <button id="export" class="quiet" type="button">导出本次分析 JSON</button>
+  </section>
+  <section id="keyword-section" hidden>
+    <div class="section-header"><h2>畅销同款商品关键词</h2><span id="keyword-caption">取销量前 3 款</span></div>
+    <p class="hint">从已自动匹配商品中按页面销量挑选。关键词与标题原词分别标注；不代表关键词自身的搜索量或转化率。</p>
+    <div id="keywords" class="keywords"></div>
+    <details><summary>手动检索词</summary><p class="hint">可使用上方商品原词，或自行填写检索词。</p><div id="retrieval-keywords" class="keywords"></div><div class="manual-search"><label for="manual-keyword" class="visually-hidden">手动填写搜索词</label><input id="manual-keyword" placeholder="手动填写搜索词"><button id="add-keyword" type="button">添加</button></div><button id="search-keywords" type="button">检索已选关键词</button></details>
+  </section>
+  <footer>同款只按图片中的商品主体判断。价格、标题和链接来自页面；SKU、优惠条件和结算价可能不同。</footer>
+</main>
+<script type="module" src="panel.js"></script>
+</body></html>

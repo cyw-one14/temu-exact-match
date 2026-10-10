@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+const calls=[];let listener,tabFailure=null;
+globalThis.chrome={runtime:{id:'test-extension',getURL:path=>'chrome-extension://test-extension/'+path,onInstalled:{addListener:()=>{}},onMessage:{addListener:fn=>{listener=fn;}}},action:{onClicked:{addListener:()=>{}}},sidePanel:{open:options=>{calls.push({type:'open',options});return Promise.resolve();}},storage:{session:{set:async value=>{calls.push({type:'save',value});}}},tabs:{get:async()=>{if(tabFailure)throw tabFailure;return{url:'https://attacker.example'};}}};
+await import('../extension/background.js');
+test('the image click opens the panel before asynchronous selection storage and carries only the selected image',async()=>{
+  const response=await new Promise(resolve=>listener({type:'image-picked',selection:{imageUrl:'https://img.kwcdn.com/a.jpg',productId:'601123456789001',title:'Bottle'}},{id:'test-extension',tab:{id:3,windowId:2,url:'https://www.temu.com/search_result.html'}},resolve));
+  assert.equal(response.ok,true);assert.equal(calls[0].type,'open');assert.equal(calls[1].type,'save');assert.equal(calls[1].value['temuSelection:2'].tabId,3);
+});
+test('untrusted senders, non-TEMU tabs and arbitrary image hosts cannot initiate a lookup',()=>{
+  const before=calls.length;
+  assert.equal(listener({type:'image-picked',selection:{imageUrl:'https://img.kwcdn.com/a.jpg'}},{id:'other'},()=>{}),false);
+  let response;listener({type:'image-picked',selection:{imageUrl:'https://attacker.example/a.jpg'}},{id:'test-extension',tab:{url:'https://www.temu.com/',windowId:1}},value=>response=value);
+  assert.equal(response.ok,false);assert.equal(calls.length,before);
+});
+test('provider collection refuses navigation to other websites',async()=>{
+  const response=await new Promise(resolve=>listener({type:'collect-provider',tabId:1},{id:'test-extension',url:'chrome-extension://test-extension/panel.html'},resolve));assert.equal(response.ok,false);assert.match(response.error,/图搜页面/);
+});
+test('a closed provider tab returns an actionable message instead of a raw browser error',async()=>{
+  tabFailure=new Error('No tab with id: 805660750.');
+  const response=await new Promise(resolve=>listener({type:'collect-provider',tabId:805660750},{id:'test-extension',url:'chrome-extension://test-extension/panel.html'},resolve));
+  assert.equal(response.ok,false);assert.match(response.error,/图搜标签页已关闭/);assert.match(response.error,/重新打开/);
+  tabFailure=null;
+});
