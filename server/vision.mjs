@@ -89,6 +89,34 @@ export async function localSearchPhrase(buffer,referenceSpecs={}) {
   return withSpecs(result);
 }
 
+export async function compareFullPhotoEncoding(referenceBuffer,candidateBuffer){
+  const [left,right]=await Promise.all([referenceBuffer,candidateBuffer].map(async buffer=>{
+    const image=sharp(buffer,{limitInputPixels:40_000_000}).rotate();const metadata=await image.metadata();
+    const aspect=metadata.orientation>=5&&metadata.orientation<=8?metadata.height/metadata.width:metadata.width/metadata.height;
+    return {aspect,data:await image.flatten({background:'#fff'}).removeAlpha().resize(512,512,{fit:'contain',background:'#fff'}).toColourspace('srgb').raw().toBuffer()};
+  }));
+  if(!Number.isFinite(left.aspect)||Math.abs(left.aspect/right.aspect-1)>.01)return {matched:false,reason:'完整图片比例不同'};
+  const a=left.data,b=right.data,quadrants=[0,0,0,0];let meanError=0,worstTileError=0,texturedTiles=0;
+  for(let ty=0;ty<16;ty++)for(let tx=0;tx<16;tx++){
+    let error=0,energyAX=0,energyAY=0,energyBX=0,energyBY=0,energySamples=0;
+    for(let y=ty*32;y<(ty+1)*32;y++)for(let x=tx*32;x<(tx+1)*32;x++){
+      const offset=(y*512+x)*3;
+      for(let c=0;c<3;c++){
+        const i=offset+c;error+=Math.abs(a[i]-b[i]);
+        if(x>0&&x<511&&y>0&&y<511){energySamples++;
+          energyAX+=Math.abs(2*a[i]-a[i-3]-a[i+3]);energyAY+=Math.abs(2*a[i]-a[i-1536]-a[i+1536]);
+          energyBX+=Math.abs(2*b[i]-b[i-3]-b[i+3]);energyBY+=Math.abs(2*b[i]-b[i-1536]-b[i+1536]);
+        }
+      }
+    }
+    error/=3072;meanError+=error;worstTileError=Math.max(worstTileError,error);
+    if(Math.min(energyAX,energyAY,energyBX,energyBY)/Math.max(1,energySamples)>=.45){texturedTiles++;quadrants[(ty>=8?2:0)+(tx>=8?1:0)]++;}
+  }
+  meanError/=256;
+  const matched=meanError<=3&&worstTileError<=6&&texturedTiles>=48&&quadrants.every(count=>count>=6);
+  return {matched,meanError,worstTileError,texturedTiles,quadrants,reason:matched?'全图分布的纹理及每个局部区域一致，差异符合压缩 / 缩放副本':'完整图片局部内容或分布尚未确认一致'};
+}
+
 export async function comparePixels(referenceBuffer,candidateBuffer,{sameAsset=false}={}) {
   const imageOptions={limitInputPixels:40_000_000};
   const [a,b]=await Promise.all([referenceBuffer,candidateBuffer].map(buffer=>sharp(buffer,imageOptions).rotate().removeAlpha().resize(256,256,{fit:'contain',background:'#fff'}).toColourspace('srgb').raw().toBuffer()));
@@ -99,18 +127,20 @@ export async function comparePixels(referenceBuffer,candidateBuffer,{sameAsset=f
   variance/=a.length;
   const imageSimilarity=Math.max(0,1-difference/(a.length*255));
   const pixelIdentical=a.equals(b)&&variance>100;
-  // Pixel similarity alone is never an identity verdict. URL evidence must refer to
-  // the same immutable product image and only allow resizing/encoding transforms.
+  // A global similarity score alone never confirms a photo. Different URLs can
+  // hold recompressed copies, so independently verify every image region.
   const assetVerified=sameAsset&&variance>100&&imageSimilarity>.95;
-  const identical=pixelIdentical||assetVerified;
-  return {visual:identical?'same_photo':'uncertain',imageSimilarity,samePhoto:identical,pixelIdentical,assetVerified};
+  const photoEncoding=!pixelIdentical&&!assetVerified&&variance>100&&imageSimilarity>=.985?await compareFullPhotoEncoding(referenceBuffer,candidateBuffer):null;
+  const reencodedPhoto=photoEncoding?.matched===true;
+  const identical=pixelIdentical||assetVerified||reencodedPhoto;
+  return {visual:identical?'same_photo':'uncertain',imageSimilarity,samePhoto:identical,pixelIdentical,assetVerified,reencodedPhoto,photoEncoding};
 }
 
 // Page-image matching is independent of the subject model and its cache.
 // It restores the original pixel / official-image-resource evidence for retrieval.
 export async function pageCompare(referenceBuffer,candidateBuffer,referenceSpecs,candidateText,options={}) {
   const pixels=await comparePixels(referenceBuffer,candidateBuffer,options);
-  const comparison={...pixels,subject:null,checks:localSpecChecks(referenceSpecs,candidateText),differences:[],evidence:[pixels.pixelIdentical?'标准化图片像素一致':pixels.assetVerified?'同一官方商品图片资源，尺寸 / 格式转换后图像内容一致':'页面图片尚未确认一致，留待后续主体核对']};
+  const comparison={...pixels,subject:null,checks:localSpecChecks(referenceSpecs,candidateText),differences:[],evidence:[pixels.pixelIdentical?'标准化图片像素一致':pixels.assetVerified?'同一官方商品图片资源，尺寸 / 格式转换后图像内容一致':pixels.reencodedPhoto?'完整图片纹理与全图局部内容一致，确认压缩 / 缩放同图副本':'页面图片尚未确认一致，留待后续主体核对']};
   return {...comparison,...decideProductMatch(comparison,referenceSpecs,candidateText),engine:'page-image',matchStage:'page-image'};
 }
 
@@ -122,7 +152,7 @@ export async function localCompare(referenceBuffer,candidateBuffer,referenceSpec
   }
   if(options.subjectMatching&&!pixels.samePhoto&&!fastMatch?.matched)try{instanceMatch=await instanceFeatureCompare(referenceBuffer,candidateBuffer,options.referenceText);}catch(error){instanceMatch={matched:false,reason:'商品实例核验未完成，继续原主体复核',error:error.message.slice(0,120)};}
   const subject=options.subjectMatching&&!pixels.samePhoto&&!fastMatch?.matched&&!instanceMatch?.matched?await compareSubjects(referenceBuffer,candidateBuffer,{referenceText:options.referenceText,candidateText}):null;
-  const comparison={...pixels,fastMatch,instanceMatch,subject,checks:localSpecChecks(referenceSpecs,candidateText),differences:[],evidence:[pixels.pixelIdentical?'标准化图片像素一致':pixels.assetVerified?'同一官方商品图片资源，尺寸 / 格式转换后图像内容一致':fastMatch?.matched?'SIFT 快速核验：至少 24 个几何一致点，匹配覆盖主体多个区域，整体颜色及局部图像内容一致':instanceMatch?.matched?instanceMatch.reason:subject?.reason||'本地引擎无法确认这两张图片一致']};
+  const comparison={...pixels,fastMatch,instanceMatch,subject,checks:localSpecChecks(referenceSpecs,candidateText),differences:[],evidence:[pixels.pixelIdentical?'标准化图片像素一致':pixels.assetVerified?'同一官方商品图片资源，尺寸 / 格式转换后图像内容一致':pixels.reencodedPhoto?'完整图片纹理与全图局部内容一致，确认压缩 / 缩放同图副本':fastMatch?.matched?'SIFT 快速核验：至少 24 个几何一致点，匹配覆盖主体多个区域，整体颜色及局部图像内容一致':instanceMatch?.matched?instanceMatch.reason:subject?.reason||'本地引擎无法确认这两张图片一致']};
   if(instanceMatch?.matched)comparison.evidence.push('商品本体实例已核验，图中重复数量不参与排除；该链接套装组成和具体 SKU 仍按页面原文记录，未折算单件价格');
   if(fastMatch?.matched)comparison.evidence.push('几何一致点 '+fastMatch.inliers+'；主体匹配点覆盖 '+Math.round(fastMatch.subjectCoverage*100)+'%；局部图像误差 '+fastMatch.worstRegionError.toFixed(2)+'（指标不是同款概率）');
   if(subject?.attention){

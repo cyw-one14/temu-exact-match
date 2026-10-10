@@ -78,7 +78,7 @@ export const server=http.createServer(async(req,res)=>{
     }
     res.setHeader('Content-Type','application/json; charset=utf-8');
     if(req.method==='GET' && path==='/health'){
-      res.end(JSON.stringify({ok:true,version:manifest.version,matchingPolicy:'title-first-v13',engine:config.engine,configured:config.engine==='local'||Boolean(config.apiKey),model:subjectState,productAttention:attentionState,fastFeatures:fastFeatureState,diagnosticModel:modelState,extensionId}));return;
+      res.end(JSON.stringify({ok:true,version:manifest.version,matchingPolicy:'title-photo-v14',engine:config.engine,configured:config.engine==='local'||Boolean(config.apiKey),model:subjectState,productAttention:attentionState,fastFeatures:fastFeatureState,diagnosticModel:modelState,extensionId}));return;
     }
     if((!accepted&&!sameOriginRead) || req.headers['x-temu-client']!=='exact-match')throw Object.assign(new Error('请从插件或本机设置页面访问'),{status:403});
     if(req.method==='GET' && path==='/config'){
@@ -122,6 +122,7 @@ export const server=http.createServer(async(req,res)=>{
       // panel explicitly starts the later subject-review stage.
       if(body.phase!=='subject-review'){
         const result=await pageCompare(reference,candidate.buffer,specs,text,imageOptions);
+        if(PORT===43187)await recordSubjectResult(body,reference,candidate.buffer,result);
         res.end(JSON.stringify({ok:true,comparison:{...result,matchedImageUrl:body.imageUrl}}));return;
       }
       imageOptions.subjectMatching=true;
@@ -167,7 +168,7 @@ export const server=http.createServer(async(req,res)=>{
         }catch(error){alternativeErrors.push(error.message);}
       }
       if(alternativeErrors.length)result.alternativeErrors=alternativeErrors;
-      await recordSubjectResult(body,reference,candidate.buffer,result);
+      if(PORT===43187)await recordSubjectResult(body,reference,candidate.buffer,result);
       res.end(JSON.stringify({ok:true,comparison:result}));return;
     }
     throw Object.assign(new Error('接口不存在'),{status:404});

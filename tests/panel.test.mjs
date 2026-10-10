@@ -158,7 +158,7 @@ test('page-image matching finishes first, ignores subject scores and reviews onl
   assert.equal(lastSaved.items.find(item=>item.imageUrl.includes('new-background')).matchStage,'subject-review');
   assert.equal(document.getElementById('exact-results').children.length,2);
   assert.match(document.getElementById('exact-results').firstElementChild.textContent,/同图匹配|自动确认/);
-  assert.equal(lastSaved.matchingPolicy,'title-first-v13');
+  assert.equal(lastSaved.matchingPolicy,'title-photo-v14');
 });
 
 test('automatic checks use captured images and card data without opening reference or candidate detail tabs',async()=>{

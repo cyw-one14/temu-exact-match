@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import {normalizeImage,sameProductImageAsset} from '../server/images.mjs';
-import {imageBuffer,comparePixels,localCompare} from '../server/vision.mjs';
+import {imageBuffer,comparePixels,localCompare,pageCompare} from '../server/vision.mjs';
 
 const pixels=Buffer.from(Array.from({length:64*48*3},(_,i)=>(i*17+Math.floor(i/192)*11)%256));
 const source=()=>sharp(pixels,{raw:{width:64,height:48,channels:3}});
@@ -49,4 +49,24 @@ test('near-identical pixels require same-asset proof and complete spec evidence 
   const evidence='Brand: Acme; Model: A12; Material: silicone; Capacity: 500ml; Quantity: 1pc';
   assert.equal((await localCompare(a,b,known,evidence,{sameAsset:true})).status,'exact');
   assert.equal((await localCompare(a,b,known,evidence.replace('500ml','750ml'),{sameAsset:true})).status,'pending');
+});
+
+test('reencoded complete photos match without URL equality while local product edits, smooth backgrounds and crops stay unconfirmed',async()=>{
+  const width=512,height=512,scene=Buffer.alloc(width*height*3);
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+    const i=(y*width+x)*3,texture=8*Math.sin(x*.7)+6*Math.cos(y*.63);
+    const color=x<256?[174,132,211]:[103,186,208];
+    for(let c=0;c<3;c++)scene[i+c]=Math.round(color[c]+texture+(x+y)%3);
+  }
+  const original=await sharp(scene,{raw:{width,height,channels:3}}).png().toBuffer();
+  const copy=await sharp(original).resize(400,400).webp({quality:85}).toBuffer();
+  const photo=await comparePixels(original,copy);assert.equal(photo.assetVerified,false);assert.equal(photo.reencodedPhoto,true);assert.equal(photo.samePhoto,true);
+  const comparison=await pageCompare(original,copy,{},'Brand: Different Brand; Quantity: 11 pairs');
+  assert.equal(comparison.status,'visual-match');assert.equal(comparison.subject,null);assert.match(comparison.evidence.join(' '),/压缩/);
+  const changed=Buffer.from(scene);
+  for(let y=150;y<166;y++)for(let x=150;x<166;x++){const i=(y*width+x)*3;changed[i]=255;changed[i+1]=255;changed[i+2]=255;}
+  const altered=await sharp(changed,{raw:{width,height,channels:3}}).png().toBuffer();
+  const negative=await comparePixels(original,altered);assert.ok(negative.imageSimilarity>=.985,'shared whole-image score alone would look very close');assert.equal(negative.samePhoto,false);assert.ok(negative.photoEncoding.worstTileError>6);
+  const cropped=await sharp(original).extract({left:32,top:32,width:448,height:448}).png().toBuffer();assert.equal((await comparePixels(original,cropped)).samePhoto,false);
+  const blank=await sharp({create:{width,height,channels:3,background:'#eee'}}).png().toBuffer();assert.equal((await comparePixels(blank,await sharp(blank).webp().toBuffer())).samePhoto,false);
 });

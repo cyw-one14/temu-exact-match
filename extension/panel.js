@@ -8,7 +8,7 @@ const $=id=>document.getElementById(id);
 const SERVICE='http://127.0.0.1:43187';
 const windowId=(await chrome.windows.getCurrent()).id;
 const stateKey='temuMatch:'+windowId,selectionKey='temuSelection:'+windowId;
-const MATCHING_POLICY='title-first-v13';
+const MATCHING_POLICY='title-photo-v14';
 const emptyState=()=>({matchingPolicy:MATCHING_POLICY,matchRevision:1,referenceContext:null,keywordPolicy:'best-sellers-v1',referenceImage:'',referenceSpecs:{},profile:null,keywords:[],keywordSources:{},selectedQueries:[],items:[],pages:[],lastRun:null,selection:null,providerJob:null});
 let state=emptyState();
 let busy=false,cancelled=false,healthTimer=null;
@@ -439,7 +439,7 @@ async function compareItems({automatic=false}={}){
     delete item.subjectAttempt;delete item.instanceMatch;delete item.matchedReferenceImageUrl;delete item.referenceEvidence;delete item.listingColorMatch;
     status('页面图片匹配 '+processed+' / '+candidates.length+'：'+item.title.slice(0,55));
     try{
-      const first=await api('/compare',{phase:'page-match',referenceImage:state.referenceImage,referenceImageUrl:state.selection?.imageUrl,referenceSpecs:state.referenceSpecs,imageUrl:item.imageUrl,candidateText:comparisonText(item)});
+      const first=await api('/compare',{phase:'page-match',candidateId:item.id,referenceImage:state.referenceImage,referenceImageUrl:state.selection?.imageUrl,referenceSpecs:state.referenceSpecs,imageUrl:item.imageUrl,candidateText:comparisonText(item)});
       Object.assign(item,first.comparison,{matchSource:'automated'});
       if(item.variantAmbiguous&&item.status==='exact'){item.status='visual-match';item.missing=['多规格商品，具体 SKU / 对应价格未绑定'];}
       // Matching uses only captured card/detail snapshots and image URLs.
@@ -471,7 +471,7 @@ async function compareItems({automatic=false}={}){
     item.subjectAttempt=state.matchRevision;
     status('后续图像核对 '+reviewed+' / '+review.length+'：'+item.title.slice(0,55));
     try{
-      const result=await api('/compare',{phase:'subject-review',referenceImage:state.referenceImage,referenceImageUrl:state.selection?.imageUrl,referenceTitle,candidateTitle:item.title,referenceImages:['public-jsonld','bound-current-product-gallery'].includes(state.referenceContext?.imageSource)?state.referenceContext.referenceImages||[]:[],referenceImageSource:state.referenceContext?.imageSource||'',referenceSpecs:state.referenceSpecs,imageUrl:item.imageUrl,candidateImages:item.verifiedImages||[],candidateText:comparisonText(item)});
+      const result=await api('/compare',{phase:'subject-review',candidateId:item.id,referenceImage:state.referenceImage,referenceImageUrl:state.selection?.imageUrl,referenceTitle,candidateTitle:item.title,referenceImages:['public-jsonld','bound-current-product-gallery'].includes(state.referenceContext?.imageSource)?state.referenceContext.referenceImages||[]:[],referenceImageSource:state.referenceContext?.imageSource||'',referenceSpecs:state.referenceSpecs,imageUrl:item.imageUrl,candidateImages:item.verifiedImages||[],candidateText:comparisonText(item)});
       Object.assign(item,result.comparison,{matchSource:'automated'});
       if((item.variantAmbiguous||state.referenceContext?.variantAmbiguous)&&item.status==='exact'){item.status='visual-match';item.missing=['多规格商品，具体 SKU / 对应价格未绑定'];}
     }catch(error){
@@ -559,7 +559,7 @@ $('settings').addEventListener('click',()=>chrome.runtime.openOptionsPage());
 $('result-sort').addEventListener('change',render);
 $('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('模型正在加载，完成后可以识别图片。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.2.4',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'only-loaded-pages',matchingPolicy:state.matchingPolicy,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.2.5',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'only-loaded-pages',matchingPolicy:state.matchingPolicy,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
