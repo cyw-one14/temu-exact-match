@@ -4,7 +4,9 @@
 
 本项目使用Git，默认分支main，远程使用GitHub私有仓库。当前0.2.1源码作为首份版本基线；初始化之前的开发没有独立Git提交，不能把验证文档当作可自动回退的历史。
 
-Codex与Qoder的共同维护约定见AGENTS.md。开发前检查git status和相关diff，完成修改及验证后提交相关文件；配置远程origin并登录GitHub后使用git push上传。不要强制推送或覆盖另一位维护者的未提交修改。
+远程仓库：[cyw-one14/temu-exact-match](https://github.com/cyw-one14/temu-exact-match)（私有）。origin已配置，main跟踪origin/main；当前源码已上传。
+
+Codex与Qoder的共同维护约定见AGENTS.md。开发前检查git status和相关diff，完成修改及验证后提交相关文件并使用git push上传。不要强制推送或覆盖另一位维护者的未提交修改。
 
 仓库保存源码、安装说明、依赖锁文件和测试用例。node_modules、模型/.cache、ZIP/dist、运行日志、.local-*及密钥文件由.gitignore排除；换电脑后按开发环境步骤重新准备依赖和模型。扩展manifest的key是公钥，保留它以稳定插件ID。
 

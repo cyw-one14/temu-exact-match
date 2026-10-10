@@ -12,8 +12,9 @@
 ## Git 与验证
 
 - 每次开发先查看 git status 和相关 diff，保留已有改动。提交只包含本次明确维护的文件；首次基线提交包含当前完整源码。
-- 完成实质功能修改后执行适当检查、记录验证结果，再提交到 Git。上传使用已配置的远程仓库，遇到身份/权限/分支冲突时先明确情况，不强制推送或覆盖远程历史。
+- 完成实质功能修改后执行适当检查、记录验证结果，再提交相关文件并推送当前工作分支到origin。用户已授权本项目源码上传至该GitHub私有仓库；遇到身份/权限/分支冲突时先明确情况，不强制推送或覆盖远程历史。
 - 用户指定远程为GitHub私有仓库；不得未经用户明确要求改成公开仓库。默认分支main。
+- origin为https://github.com/cyw-one14/temu-exact-match.git，main跟踪origin/main。Git身份、GitHub代理和登录凭证属于本机设置，不写入源码；换电脑应单独完成登录。
 - 不提交 .cache、node_modules、dist、test-output、.local-*、环境密钥或私钥。扩展 manifest.json 的 key 是配对用公钥，应保留以稳定扩展ID；没有私钥需要上传。
 - 修改 shared 模块或扩展代码后运行 node scripts/package.mjs，并运行 python scripts/verify-package.py 校验；不将生成的 ZIP 加入源码提交。
 - 当前本机服务端口43187，启动/停止用 scripts/service-control.mjs，保持服务归属检查，不停止其他项目的进程。
