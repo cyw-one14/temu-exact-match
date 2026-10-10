@@ -15,7 +15,7 @@ chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
     return true;
   }
   if(message.type==='collect'){
-    collect(message.tabId).then(data=>sendResponse({ok:true,data})).catch(error=>sendResponse({ok:false,error:error.message}));
+    collect(message.tabId,message.selectedImageUrl).then(data=>sendResponse({ok:true,data})).catch(error=>sendResponse({ok:false,error:error.message}));
     return true;
   }
   if(message.type==='collect-provider'&&sender.url===chrome.runtime.getURL('panel.html')){
@@ -24,12 +24,14 @@ chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
   return false;
 });
 
-async function collect(tabId){
+async function collect(tabId,selectedImageUrl){
   const tab=await chrome.tabs.get(tabId);
   const url=new URL(tab.url||'https://invalid.local');
   if(url.protocol!=='https:'||url.hostname!=='www.temu.com')throw new Error('请先打开 TEMU 美国站商品页或搜索结果页');
-  const results=await chrome.scripting.executeScript({target:{tabId},files:['extract.js']});
-  const data=results[0]?.result;
+  const selected=officialImage(selectedImageUrl);
+  await chrome.scripting.executeScript({target:{tabId},func:value=>{globalThis.temuSelectedImageUrl=value;},args:[selected]});
+  const results=await chrome.scripting.executeScript({target:{tabId},files:['structured-fields.js','extract.js']});
+  const data=results.at(-1)?.result;
   if(!data)throw new Error('无法读取当前页面，请刷新 TEMU 页面后重试');
   return data;
 }
@@ -42,7 +44,7 @@ async function collectProvider(tabId){
   }
   const url=new URL(tab.url||'https://invalid.local');
   if(url.origin!=='https://www.temaishuju.com')throw new Error('请打开特卖数据的图搜页面');
-  const results=await chrome.scripting.executeScript({target:{tabId},files:['provider-extract.js']});
-  if(!results[0]?.result)throw new Error('图搜页面暂时无法读取，请等待加载后重试');
-  return results[0].result;
+  const results=await chrome.scripting.executeScript({target:{tabId},files:['structured-fields.js','provider-extract.js']});
+  if(!results.at(-1)?.result)throw new Error('图搜页面暂时无法读取，请等待加载后重试');
+  return results.at(-1).result;
 }

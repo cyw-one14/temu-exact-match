@@ -4,7 +4,8 @@ import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
 import {parseHTML} from 'linkedom';
 const code=await readFile(new URL('../extension/extract.js',import.meta.url),'utf8');
-function extract(html,url){const {document}=parseHTML(html);return vm.runInNewContext(code,{document,location:new URL(url),URL,Date,Map,Set,JSON,Array,String,RegExp,Boolean});}
+const declarations=await readFile(new URL('../extension/structured-fields.js',import.meta.url),'utf8');
+function extract(html,url){const {document}=parseHTML(html),context=vm.createContext({document,location:new URL(url),URL,Date,Map,Set,JSON,Array,String,RegExp,Boolean});vm.runInContext(declarations,context);return vm.runInContext(code,context);}
 
 test('reads actual DOM product links, image URLs, price and sold text without counting neighboring cards',()=>{
   const html='<html lang="en"><head><title>Search</title></head><body><header>Ship to United States USD</header><main><article><a href="/blue-bottle-g-601123456789001.html"><img src="https://img.kwcdn.com/blue.jpg" alt="Blue folding bottle"><span>Blue folding bottle</span></a><span>$5.99</span><span>10K+ sold</span><span>400 reviews</span></article><article><a href="/goods.html?goods_id=601123456789002"><img src="https://img.kwcdn.com/red.jpg" alt="Red bottle"><span>Red bottle</span></a><span>$4.50</span><span>2K+ sold</span></article><a href="https://external.example/goods.html?goods_id=601123456789003"><img src="https://img.kwcdn.com/not-a-temu-product.jpg" alt="Other"></a></main></body></html>';

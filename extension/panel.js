@@ -7,7 +7,7 @@ const $=id=>document.getElementById(id);
 const SERVICE='http://127.0.0.1:43187';
 const windowId=(await chrome.windows.getCurrent()).id;
 const stateKey='temuMatch:'+windowId,selectionKey='temuSelection:'+windowId;
-const MATCHING_POLICY='product-attention-v11';
+const MATCHING_POLICY='product-instance-v12';
 const emptyState=()=>({matchingPolicy:MATCHING_POLICY,matchRevision:1,referenceContext:null,keywordPolicy:'best-sellers-v1',referenceImage:'',referenceSpecs:{},profile:null,keywords:[],keywordSources:{},selectedQueries:[],items:[],pages:[],lastRun:null,selection:null,providerJob:null});
 let state=emptyState();
 let busy=false,cancelled=false,healthTimer=null;
@@ -119,7 +119,7 @@ function card(item,lead=false){
   info.append(node('p','hint',priceKindLabel(price)+(price.currency?' · '+price.currency:' · 币种未确认')+' · 尚未绑定具体 SKU / 优惠条件'));
   const meta=node('div','product-meta');
   meta.append(node('span','',item.sales?.raw||'销量未展示'));info.append(meta);
-  const badge=item.status==='exact'?'同款 · 图片主体一致 · 自动确认':item.status==='visual-match'?(item.matchStage==='page-image'?'同款 · 同图匹配 · 自动确认':item.fastMatch?.matched?'同款 · 主体一致 · 快速图像核验':'同款 · 主体一致 · 自动核对'):item.status==='different'?'已排除 · '+(item.reason||'图片主体存在差异'):item.autoAttempt===state.matchRevision?'无法自动确认 · 不参与推荐':'等待工具自动核对';
+  const badge=item.status==='exact'?'同款 · 图片主体一致 · 自动确认':item.status==='visual-match'?(item.matchStage==='page-image'?'同款 · 同图匹配 · 自动确认':item.instanceMatch?.matched?'同款本体 · 图中完整实例已核验':item.fastMatch?.matched?'同款 · 主体一致 · 快速图像核验':'同款 · 主体一致 · 自动核对'):item.status==='different'?'已排除 · '+(item.reason||'图片主体存在差异'):item.autoAttempt===state.matchRevision?'无法自动确认 · 不参与推荐':'等待工具自动核对';
   info.append(node('span','badge',badge));top.append(info);article.append(top);
   article.append(node('p','product-note',(item.salesSource==='provider-visible'?'来源：特卖数据图搜':'来源：TEMU 页面')+' · '+(item.market==='us'?'美国站':'国家站尚未核实')+' · '+periodText(item.sales)+' · 采集 '+new Date(item.capturedAt).toLocaleString('zh-CN')));
   if(price.sourceUrl)article.append(node('p','product-note','价格来源：'+(price.source==='provider-visible'?'特卖数据页面':'TEMU 商品页')+' · '+new Date(price.capturedAt).toLocaleString('zh-CN')));
@@ -133,7 +133,7 @@ function card(item,lead=false){
   const listingDetails=node('details','listing-info');listingDetails.append(node('summary','','页面品牌与规格 · 已读取 '+known.length+' 项（不参与同款判断）'));
   for(const [key,field]of Object.entries(listing.fields)){
     listingDetails.append(node('p','hint',LISTING_LABELS[key]+'：'+(field.value||'当前页面未展示')+(field.status==='options'?'（多个描述 / 选项，具体 SKU 未绑定）':'')+(field.source==='title-literal'?'（标题原文，具体 SKU 未核实）':'')));
-    for(const evidence of field.evidence)listingDetails.append(node('p','product-note','来源：'+({'title-literal':'商品标题','visible-field':'当前商品字段','listing-text':'当前商品页面原文','structured-product':'当前商品结构化字段'}[evidence.source]||evidence.source)+' · '+evidence.evidence));
+    for(const evidence of field.evidence)listingDetails.append(node('p','product-note','来源：'+({'title-literal':'商品标题','visible-field':'当前商品字段','listing-text':'当前商品页面原文','structured-product':'当前商品结构化字段','public-jsonld':'当前商品公开结构化声明','public-microdata':'当前商品公开字段声明'}[evidence.source]||evidence.source)+' · '+evidence.evidence));
   }
   listingDetails.append(node('p','hint','店铺名不当作品牌，商品 ID 不当作型号；图片颜色和摆放数量不替代页面规格。'));
   article.append(listingDetails);
@@ -201,22 +201,24 @@ async function ensureReferenceContext(){
   const current=state,selection=state.selection;
   const selectedQuantity=titleQuantity(selection?.title);
   if(selectedQuantity&&!$('spec-quantity').value)$('spec-quantity').value=selectedQuantity;
-  if(state.referenceContext)return;
-  if(!selection?.productId){state.referenceContext={message:'本地图片不包含商品详情；不可见规格会保留为未知。'};return;}
+  if(state.referenceContext?.collectionRevision==='declared-product-v1')return;
+  if(!selection?.productId){state.referenceContext={collectionRevision:'declared-product-v1',message:'本地图片不包含商品详情；不可见规格会保留为未知。'};return;}
   status('正在自动读取原商品信息…');
   try{
     let page;
-    try{if(selection.tabId)page=await collectTab(selection.tabId);}catch(error){if(cancelled)throw error;}
+    try{if(selection.tabId)page=await collectTab(selection.tabId,selection.imageUrl);}catch(error){if(cancelled)throw error;}
     checkCancelled();if(current!==state)return;
     const detail=page?.detail?.id===selection.productId?page.detail:page?.products?.find(item=>item.id===selection.productId);
     if(!detail)throw new Error('已打开页面未提供所选商品信息，使用抓取图片核对，不另开详情页');
     const parsed=listingSpecs(detail.detailsText||detail.rawText,detail.structuredSpecs);
+    const annotations=listingMetadata({title:detail.title,text:detail.detailsText||detail.rawText,structuredSpecs:detail.structuredSpecs,listingFields:detail.listingFields});
+    for(const key of SPEC_KEYS){const field=annotations.fields[key];if(!parsed.specs[key]&&!parsed.conflicts.includes(key)&&field.status==='listed'&&field.source!=='title-literal'){parsed.specs[key]=field.value;parsed.evidence.push({key,value:field.value,evidence:field.evidence[0]?.evidence||field.value,source:field.source});}}
     const quantity=titleQuantity(detail.title);
     if(quantity&&!parsed.specs.quantity&&!parsed.conflicts.includes('quantity')){parsed.specs.quantity=quantity;parsed.evidence.push({key:'quantity',value:quantity,evidence:detail.title,source:'title'});}
-    state.referenceContext={productId:detail.id,title:detail.title,text:detail.detailsText||detail.rawText,evidence:parsed.evidence,variantAmbiguous:detail.variantAmbiguous,sourceUrl:detail.sourceUrl,capturedAt:detail.capturedAt,message:'已自动读取原商品信息；未展示的规格保留未知'+(detail.variantAmbiguous?'，原商品包含多个规格，无法确定图片对应的 SKU':'')+'。'};
+    state.referenceContext={collectionRevision:'declared-product-v1',productId:detail.id,title:detail.title,text:detail.detailsText||detail.rawText,evidence:parsed.evidence,listingFields:detail.listingFields||[],referenceImages:['public-jsonld','bound-current-product-gallery'].includes(detail.declaredImageSource)?(detail.verifiedImages||[]).filter(officialImage).slice(0,6):[],imageSource:detail.declaredImageSource||'',variantAmbiguous:detail.variantAmbiguous,sourceUrl:detail.sourceUrl,capturedAt:detail.capturedAt,message:'已自动读取原商品信息；未展示的规格保留未知'+(detail.variantAmbiguous?'，原商品包含多个规格，无法确定图片对应的 SKU':'')+'。'};
     for(const key of SPEC_KEYS)if(!$('spec-'+key).value&&parsed.specs[key])$('spec-'+key).value=parsed.specs[key];
     state.referenceSpecs=getSpecs();
-  }catch(error){if(cancelled)throw error;if(current===state)state.referenceContext={message:'原商品信息无法自动读取：'+error.message};}
+  }catch(error){if(cancelled)throw error;if(current===state)state.referenceContext={collectionRevision:'declared-product-v1',message:'原商品信息无法自动读取：'+error.message};}
   render();await save();
 }
 function requestAutoCompare(){
@@ -259,6 +261,7 @@ function mergeProvider(page){
     if(existing){
       const unchanged=existing.imageUrl===product.imageUrl&&(existing.providerTitle||existing.title)===product.title&&existing.rawText===product.rawText;
       const retained=unchanged?{status:existing.status,matchSource:existing.matchSource,evidence:existing.evidence,missing:existing.missing,differences:existing.differences,detailsText:existing.detailsText,variantAmbiguous:existing.variantAmbiguous,title:existing.title,priceText:existing.priceText,price:existing.price,priceObservations:existing.priceObservations,productKeywords:[...(existing.productKeywords||[]),...(product.productKeywords||[])]}:{};
+      if(unchanged&&existing.detailSourceUrl){retained.structuredSpecs=existing.structuredSpecs;retained.listingFields=existing.listingFields;retained.verifiedImages=existing.verifiedImages;}
       // Late-rendered prices refresh independently of image confirmation.
       const previousPrice=existing.price;
       Object.assign(existing,product,retained);
@@ -305,7 +308,7 @@ async function readProvider(manual=false,{priceOnly=false}={}){
       }
       render();await save();$('provider-status').textContent='核对期间已同步 '+refreshed+' 个商品的页面价格。';if(manual)watchProvider();return;
     }
-    const fingerprint=JSON.stringify([data.products.map(item=>[item.id,item.imageUrl,item.title,item.rawText,item.priceText,item.price?.currency,item.sales,item.market,item.productKeywords]),data.keywords.map(item=>[item.query,item.metrics])]);
+    const fingerprint=JSON.stringify([data.products.map(item=>[item.id,item.imageUrl,item.title,item.rawText,item.priceText,item.price?.currency,item.sales,item.market,item.productKeywords,item.listingFields,item.structuredSpecs,item.verifiedImages]),data.keywords.map(item=>[item.query,item.metrics])]);
     if(fingerprint!==job.lastFingerprint){job.lastFingerprint=fingerprint;mergeProvider(data);await save();}
     $('provider-status').textContent='本页已读取 '+data.products.length+' 个候选商品。工具自动核对后，按销量筛选前 3 款并收集商品关键词。';
     if(manual){
@@ -334,8 +337,8 @@ async function acceptSelection(value){
   }}catch(error){status(error.message,true);}finally{selectionProcessing=false;requestAutoCompare();}
 }
 
-async function collectTab(tabId){
-  const response=await chrome.runtime.sendMessage({type:'collect',tabId});
+async function collectTab(tabId,selectedImageUrl=''){
+  const response=await chrome.runtime.sendMessage({type:'collect',tabId,selectedImageUrl});
   if(!response?.ok)throw new Error(response?.error||'读取页面失败');
   if(response.data.challenge){await chrome.tabs.update(tabId,{active:true});tempTabs.delete(tabId);throw new Error('TEMU 出现安全验证，请在该页面自行完成验证，再点“读取当前 TEMU 页”');}
   return response.data;
@@ -344,6 +347,12 @@ function mergePage(page,query=''){
   const incoming=page.detail&&new URL(page.pageUrl).searchParams.has('goods_id')?[page.detail]:page.products;
   if(page.detail&&/-g-\d+\.html/.test(new URL(page.pageUrl).pathname))incoming.splice(0,incoming.length,page.detail);
   for(const product of incoming){
+    if(page.detail?.id===product.id)for(const saved of state.items.filter(item=>item.id===product.id)){
+      // Enrich the already loaded product without copying another source's price,
+      // sales window, picture, status or title into an in-flight comparison.
+      saved.detailsText=product.detailsText||product.rawText;saved.structuredSpecs=product.structuredSpecs;saved.listingFields=product.listingFields||[];saved.verifiedImages=product.verifiedImages||[];saved.variantAmbiguous=product.variantAmbiguous;
+      saved.detailSourceUrl=product.sourceUrl||page.pageUrl;saved.detailCapturedAt=product.capturedAt||page.capturedAt;
+    }
     const existing=state.items.find(item=>item.id===product.id&&(item.salesSource||'temu-visible')==='temu-visible');
     if(existing){existing.queries=[...new Set([...(existing.queries||[]),...(query?[query]:[])])];continue;}
     state.items.push({...product,price:priceObservation(product.priceText,{market:product.market,currency:product.priceCurrency,source:product.priceSource||'visible-page',sourceUrl:page.pageUrl,capturedAt:product.capturedAt}),sales:parseSales(product.rawText),queries:query?[query]:[],status:'unreviewed',missing:[],evidence:[],matchSource:null});
@@ -410,7 +419,7 @@ async function compareItems({automatic=false}={}){
   for(const item of candidates){
     checkCancelled();processed++;
     item.autoAttempt=state.matchRevision;
-    delete item.subjectAttempt;
+    delete item.subjectAttempt;delete item.instanceMatch;delete item.matchedReferenceImageUrl;delete item.referenceEvidence;
     status('页面图片匹配 '+processed+' / '+candidates.length+'：'+item.title.slice(0,55));
     try{
       const first=await api('/compare',{phase:'page-match',referenceImage:state.referenceImage,referenceImageUrl:state.selection?.imageUrl,referenceSpecs:state.referenceSpecs,imageUrl:item.imageUrl,candidateText:comparisonText(item)});
@@ -441,7 +450,7 @@ async function compareItems({automatic=false}={}){
     item.subjectAttempt=state.matchRevision;
     status('后续图像核对 '+reviewed+' / '+review.length+'：'+item.title.slice(0,55));
     try{
-      const result=await api('/compare',{phase:'subject-review',referenceImage:state.referenceImage,referenceImageUrl:state.selection?.imageUrl,referenceTitle:state.selection?.title||state.referenceContext?.title||'',referenceSpecs:state.referenceSpecs,imageUrl:item.imageUrl,candidateImages:item.verifiedImages||[],candidateText:comparisonText(item)});
+      const result=await api('/compare',{phase:'subject-review',referenceImage:state.referenceImage,referenceImageUrl:state.selection?.imageUrl,referenceTitle:state.selection?.title||state.referenceContext?.title||'',referenceImages:['public-jsonld','bound-current-product-gallery'].includes(state.referenceContext?.imageSource)?state.referenceContext.referenceImages||[]:[],referenceImageSource:state.referenceContext?.imageSource||'',referenceSpecs:state.referenceSpecs,imageUrl:item.imageUrl,candidateImages:item.verifiedImages||[],candidateText:comparisonText(item)});
       Object.assign(item,result.comparison,{matchSource:'automated'});
       if((item.variantAmbiguous||state.referenceContext?.variantAmbiguous)&&item.status==='exact'){item.status='visual-match';item.missing=['多规格商品，具体 SKU / 对应价格未绑定'];}
     }catch(error){
@@ -528,7 +537,7 @@ $('settings').addEventListener('click',()=>chrome.runtime.openOptionsPage());
 $('result-sort').addEventListener('change',render);
 $('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('模型正在加载，完成后可以识别图片。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.2.2',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'only-loaded-pages',matchingPolicy:state.matchingPolicy,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.2.3',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'only-loaded-pages',matchingPolicy:state.matchingPolicy,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
@@ -540,7 +549,7 @@ SPEC_KEYS.forEach(key=>$('spec-'+key).addEventListener('change',()=>{
 try{
   const stored=await chrome.storage.session.get([stateKey,'temuMatch']);const saved=stored[stateKey]||stored.temuMatch;
   if(saved?.referenceImage){state={...emptyState(),...saved};if(saved.keywordPolicy!=='best-sellers-v1'){state.keywords=[];state.selectedQueries=[];state.keywordSources={};state.keywordPolicy='best-sellers-v1';}for(const key of SPEC_KEYS)$('spec-'+key).value=state.referenceSpecs?.[key]||'';}
-  if(saved&&saved.matchingPolicy!==MATCHING_POLICY){state.matchingPolicy=MATCHING_POLICY;for(const item of state.items){item.status='unreviewed';item.matchSource=null;item.evidence=[];item.missing=[];item.differences=[];delete item.subject;delete item.fastMatch;delete item.visualChecks;delete item.checks;delete item.listingDifferences;delete item.packDifference;delete item.priorityScore;delete item.pageImagePriority;delete item.matchStage;delete item.subjectAttempt;delete item.autoAttempt;}}
+  if(saved&&saved.matchingPolicy!==MATCHING_POLICY){state.matchingPolicy=MATCHING_POLICY;for(const item of state.items){item.status='unreviewed';item.matchSource=null;item.evidence=[];item.missing=[];item.differences=[];delete item.subject;delete item.fastMatch;delete item.instanceMatch;delete item.matchedReferenceImageUrl;delete item.referenceEvidence;delete item.visualChecks;delete item.checks;delete item.listingDifferences;delete item.packDifference;delete item.priorityScore;delete item.pageImagePriority;delete item.matchStage;delete item.subjectAttempt;delete item.autoAttempt;}}
 }catch{}
 chrome.storage.onChanged.addListener((changes,area)=>{if(area==='session'&&changes[selectionKey]?.newValue)acceptSelection(changes[selectionKey].newValue);});
 render();

@@ -71,6 +71,8 @@
     seen.set(product.id,{...product,title,images,imageUrl:images[0],productKeywords:productKeywords(card,product.id),rawText:text,sourceUrl:location.href,capturedAt:result.capturedAt,market,...priceFrom(card),source:'visible-page'});
   }
   result.products=[...seen.values()].slice(0,120);
+  const declared=typeof globalThis.temuDeclaredProducts==='function'?globalThis.temuDeclaredProducts():new Map();
+  for(const product of result.products){const data=declared.get(product.id);if(data){product.listingFields=data.fields;product.verifiedImages=data.images;product.declaredImageSource=data.source;}}
   const current=identity(location.href);
   if(current){
     const main=document.querySelector('main')||document.body;
@@ -86,7 +88,8 @@
     }
     for(const script of document.querySelectorAll('script[type="application/ld+json"]')){try{collect(JSON.parse(script.textContent));}catch{}}
     const headingName=clean(document.querySelector('h1')?.textContent);
-    const primary=structured.find(item=>item.url&&identity(item.url)?.id===current.id)||structured.find(item=>!item.url&&headingName&&clean(item.name)===headingName)||(structured.length===1&&!structured[0].url?structured[0]:undefined);
+    const unbound=structured.filter(item=>!item.url),named=unbound.filter(item=>headingName&&clean(item.name)===headingName);
+    const primary=structured.find(item=>item.url&&identity(item.url)?.id===current.id)||(named.length===1?named[0]:undefined)||(unbound.length===1&&!unbound[0].name?unbound[0]:undefined);
     const structuredSpecs={};
     const direct={brand:typeof primary?.brand==='string'?primary.brand:primary?.brand?.name,model:primary?.model,material:primary?.material,dimensions:primary?.size,quantity:primary?.numberOfItems};
     const properties=Array.isArray(primary?.additionalProperty)?primary.additionalProperty:[];
@@ -110,6 +113,7 @@
     const words=typeof primary?.keywords==='string'?primary.keywords.split(/[,，;；|]+/):Array.isArray(primary?.keywords)?primary.keywords:[];
     const explicitWords=words.filter(word=>typeof word==='string'&&clean(word)&&word.length<=180).map(word=>({query:clean(word),productId:current.id,evidence:JSON.stringify(primary.keywords),pageUrl:location.href}));
     result.detail={...current,title,images,verifiedImages,imageUrl:images[0]||'',productKeywords:explicitWords,structuredSpecs,rawText:text,detailsText:text+(structuredText?'\n结构化商品信息：'+structuredText:'')+(specText?'\n商品结构化规格：\n'+specText:''),variantAmbiguous,sourceUrl:location.href,capturedAt:result.capturedAt,market,source:'visible-detail',...priceFrom(main,primary?.offers)};
+    const declaredDetail=declared.get(current.id);if(declaredDetail){result.detail.listingFields=declaredDetail.fields;result.detail.verifiedImages=[...new Set([...verifiedImages,...declaredDetail.images])].slice(0,6);result.detail.declaredImageSource=declaredDetail.imageSource||declaredDetail.source;}
   }
   return result;
 })();

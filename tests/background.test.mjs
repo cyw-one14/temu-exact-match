@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-const calls=[];let listener,tabFailure=null;
-globalThis.chrome={runtime:{id:'test-extension',getURL:path=>'chrome-extension://test-extension/'+path,onInstalled:{addListener:()=>{}},onMessage:{addListener:fn=>{listener=fn;}}},action:{onClicked:{addListener:()=>{}}},sidePanel:{open:options=>{calls.push({type:'open',options});return Promise.resolve();}},storage:{session:{set:async value=>{calls.push({type:'save',value});}}},tabs:{get:async()=>{if(tabFailure)throw tabFailure;return{url:'https://attacker.example'};}}};
+const calls=[];let listener,tabFailure=null,tabUrl='https://attacker.example';
+globalThis.chrome={runtime:{id:'test-extension',getURL:path=>'chrome-extension://test-extension/'+path,onInstalled:{addListener:()=>{}},onMessage:{addListener:fn=>{listener=fn;}}},action:{onClicked:{addListener:()=>{}}},sidePanel:{open:options=>{calls.push({type:'open',options});return Promise.resolve();}},storage:{session:{set:async value=>{calls.push({type:'save',value});}}},tabs:{get:async()=>{if(tabFailure)throw tabFailure;return{url:tabUrl};}}};
 await import('../extension/background.js');
 test('the image click opens the panel before asynchronous selection storage and carries only the selected image',async()=>{
   const response=await new Promise(resolve=>listener({type:'image-picked',selection:{imageUrl:'https://img.kwcdn.com/a.jpg',productId:'601123456789001',title:'Bottle'}},{id:'test-extension',tab:{id:3,windowId:2,url:'https://www.temu.com/search_result.html'}},resolve));
@@ -21,4 +21,11 @@ test('a closed provider tab returns an actionable message instead of a raw brows
   const response=await new Promise(resolve=>listener({type:'collect-provider',tabId:805660750},{id:'test-extension',url:'chrome-extension://test-extension/panel.html'},resolve));
   assert.equal(response.ok,false);assert.match(response.error,/图搜标签页已关闭/);assert.match(response.error,/重新打开/);
   tabFailure=null;
+});
+test('collection injects bounded public-data helpers into the existing page and anchors gallery to the selected image',async()=>{
+ tabUrl='https://www.temu.com/goods.html?goods_id=601123456789001';const scripts=[];
+ chrome.scripting={executeScript:async options=>{scripts.push(options);return options.files?[{result:{products:[],detail:{id:'601123456789001'}}}]:[{result:undefined}];}};
+ const response=await new Promise(resolve=>listener({type:'collect',tabId:3,selectedImageUrl:'https://img.kwcdn.com/main.jpg'},{id:'test-extension',url:'chrome-extension://test-extension/panel.html'},resolve));
+ assert.equal(response.ok,true);assert.equal(response.data.detail.id,'601123456789001');assert.deepEqual(scripts[0].args,['https://img.kwcdn.com/main.jpg']);assert.deepEqual(scripts[1].files,['structured-fields.js','extract.js']);assert.equal(scripts.every(item=>item.target.tabId===3),true);
+ tabUrl='https://attacker.example';
 });

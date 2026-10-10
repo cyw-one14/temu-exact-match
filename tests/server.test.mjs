@@ -43,11 +43,11 @@ test('HTTP page matching and image priority never invoke subject inference, incl
   const pixels=Buffer.alloc(64*64*3);
   for(let i=0;i<pixels.length;i++)pixels[i]=(i*37)%256;
   const buffer=await sharp(pixels,{raw:{width:64,height:64,channels:3}}).png().toBuffer();
-  const originalFetch=globalThis.fetch,modelBefore=JSON.stringify(subjectState);
-  globalThis.fetch=(url,options)=>String(url).startsWith('https://img.kwcdn.com/')?Promise.resolve(new Response(buffer,{headers:{'Content-Type':'image/png'}})):originalFetch(url,options);
+  const originalFetch=globalThis.fetch,modelBefore=JSON.stringify(subjectState),imageRequests=[];
+  globalThis.fetch=(url,options)=>{if(String(url).startsWith('https://img.kwcdn.com/')){imageRequests.push(String(url));return Promise.resolve(new Response(buffer,{headers:{'Content-Type':'image/png'}}));}return originalFetch(url,options);};
   try{
     for(const phase of [undefined,'image-priority','page-match']){
-      const response=await fetch(base+'/compare',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Temu-Client':'exact-match'},body:JSON.stringify({phase,referenceImage:'data:image/png;base64,'+buffer.toString('base64'),imageUrl:'https://img.kwcdn.com/page-matching-fixture.jpg'})});
+      const response=await fetch(base+'/compare',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Temu-Client':'exact-match'},body:JSON.stringify({phase,referenceImage:'data:image/png;base64,'+buffer.toString('base64'),imageUrl:'https://img.kwcdn.com/page-matching-fixture.jpg',referenceImages:['https://img.kwcdn.com/not-needed-gallery.jpg'],referenceImageSource:'public-jsonld'})});
       const data=await response.json();assert.equal(response.status,200,data.error);
       assert.equal(data.comparison.subject,null);assert.equal(data.comparison.matchStage,'page-image');
       assert.equal(data.comparison.samePhoto,true);
@@ -55,5 +55,6 @@ test('HTTP page matching and image priority never invoke subject inference, incl
       else assert.equal(data.comparison.status,'visual-match');
     }
     assert.equal(JSON.stringify(subjectState),modelBefore);
+    assert.equal(imageRequests.some(url=>url.includes('not-needed-gallery')),false,'gallery is never fetched by initial page matching');
   }finally{globalThis.fetch=originalFetch;}
 });

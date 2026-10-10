@@ -11,7 +11,7 @@ import numpy as np
 cv2.setNumThreads(1)
 CACHE = OrderedDict()
 
-def decode(value, template=False):
+def decode(value, template=False, max_side=384):
     raw = base64.b64decode(value, validate=True)
     if len(raw) > 8_000_000:
         raise ValueError('image too large')
@@ -29,7 +29,7 @@ def decode(value, template=False):
     if template and (mask is None or cv2.countNonZero(mask) == mask.size):
         raise ValueError('reference subject mask required')
     height, width = rgb.shape[:2]
-    scale = 384 / max(height, width)
+    scale = max_side / max(height, width)
     rgb = cv2.resize(rgb, (round(width * scale), round(height * scale)), interpolation=cv2.INTER_LINEAR)
     if mask is not None:
         mask = cv2.resize(mask, (rgb.shape[1], rgb.shape[0]), interpolation=cv2.INTER_NEAREST)
@@ -183,7 +183,13 @@ if __name__ == '__main__':
     for line in sys.stdin:
         try:
             data = json.loads(line)
-            if data.get('operation') == 'focused-details':
+            if data.get('operation') == 'reference-shape':
+                from instance_match import compatible_shape
+                result = compatible_shape(data['template'],data['candidate'],decode)
+            elif data.get('operation') == 'instance-match':
+                from instance_match import compare_instances
+                result = compare_instances(data['template'],data['candidate'],decode,data.get('templateAttention'))
+            elif data.get('operation') == 'focused-details':
                 result = compare(data['template'], data['candidate'], data.get('algorithm', 'SIFT'),
                                  template_attention=data['templateAttention'], candidate_attention=data['candidateAttention'])
             else:

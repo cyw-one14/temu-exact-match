@@ -10,6 +10,7 @@ test('red-box glove titles preserve literal quantities/material/color without ma
   assert.equal(info.fields.color.status,'options');assert.equal(info.fields.brand.status,'not-shown');assert.equal(info.fields.model.status,'not-shown');assert.equal(info.skuBound,false);
   const single=listingMetadata({title:'6pcs/3 Pairs Of Thick Latex Kitchen Gloves, Reusable and Durable, Size M'});
   assert.match(single.fields.quantity.value,/6pcs\/3 Pairs/);assert.equal(single.fields.material.value,'Latex');assert.equal(single.fields.dimensions.value,'Size M');
+  assert.equal(single.fields.quantity.status,'listed');assert.equal(listingMetadata({title:'22pcs (10 Pairs) Gloves'}).fields.quantity.status,'options');
 });
 test('brand/model read independently of reference specs, remain bound to current product fields, and shop names/IDs are never substitutes',()=>{
   const info=listingMetadata({title:'12-Pack Kitchen Gloves',text:'Brand: Acme Model: A12 Material: latex Price: $7.03 Sold: 370',listingFields:[{label:'店铺名称',value:'QITONG FANG'},{label:'商品ID',value:'601123456789001'}]});

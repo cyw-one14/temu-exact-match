@@ -157,6 +157,14 @@ async function attentionDescriptor(descriptor,text){
   const result=await descriptorCache(key,async()=>describeCrop(descriptor.cropped,await identifyAttention(descriptor.cropped,hint)),{directory:attentionDirectory,validate:attentionRecord});
   if(attentionCache.size>=256)attentionCache.delete(attentionCache.keys().next().value);attentionCache.set(key,result);return result;
 }
+export async function instanceReference(descriptor,text=''){
+  const attended=await attentionDescriptor(descriptor,text);
+  // A predominantly human region without enough product evidence is not a
+  // commodity template. Gloves are protected by the product semantic map.
+  const info=attended.attention;
+  if(info.skinSeedPixels>=40){const rgba=await sharp(descriptor.cropped).ensureAlpha().raw().toBuffer();let foreground=0;for(let i=3;i<rgba.length;i+=4)if(rgba[i]>=160)foreground++;if(info.productSeedPixels<Math.max(40,foreground*.08))throw new Error('参考人体区域与商品主体未可靠区分');}
+  return attended;
+}
 async function orientedAttention(descriptor,mirror,rotation){
   const key=createHash('sha256').update(ATTENTION_REVISION+':orientation:'+mirror+':'+rotation).update(descriptor.cropped).update(descriptor.attentionWeights).digest('hex');
   if(attentionCache.has(key))return attentionCache.get(key);

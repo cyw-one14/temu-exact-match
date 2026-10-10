@@ -6,8 +6,9 @@ import {parseHTML} from 'linkedom';
 import {providerSearchURL,providerSales,normalizeProviderPage} from '../shared/provider.mjs';
 import {rankExact} from '../shared/core.mjs';
 const source=await readFile(new URL('../extension/provider-extract.js',import.meta.url),'utf8');
+const declarations=await readFile(new URL('../extension/structured-fields.js',import.meta.url),'utf8');
 function extract(html,url='https://www.temaishuju.com/plugin/search-image?url=https%3A%2F%2Fimg.kwcdn.com%2Fa.jpg'){
-  const {document}=parseHTML(html);return vm.runInNewContext(source,{document,location:new URL(url),URL,Date,Map,Set,String,Array,RegExp});
+  const {document}=parseHTML(html),context=vm.createContext({document,location:new URL(url),URL,Date,Map,Set,String,Array,RegExp});vm.runInContext(declarations,context);return vm.runInContext(source,context);
 }
 
 test('visible per-product brand/model/spec columns survive capture and normalization without taking neighboring product fields',()=>{

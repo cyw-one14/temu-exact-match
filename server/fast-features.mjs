@@ -2,7 +2,7 @@ import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
 import {access} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
-import {subjectDescriptor} from './subjects.mjs';
+import {subjectDescriptor,instanceReference} from './subjects.mjs';
 
 export const fastFeatureState={state:'idle',algorithm:'SIFT',message:'快速特征核验尚未启动'};
 const python=fileURLToPath(new URL(process.platform==='win32'?'../.cache/feature-runtime/Scripts/python.exe':'../.cache/feature-runtime/bin/python',import.meta.url));
@@ -40,6 +40,17 @@ export async function comparePreparedFeatures(template,candidate){
 }
 export async function compareFocusedFeatures(template,candidate){
   return featureJob({operation:'focused-details',algorithm:'SIFT',template:template.cropped.toString('base64'),candidate:candidate.cropped.toString('base64'),templateAttention:template.attentionWeights,candidateAttention:candidate.attentionWeights});
+}
+export async function comparePreparedInstances(template,candidate,attention=null){
+  return featureJob({operation:'instance-match',template:template.toString('base64'),candidate:candidate.toString('base64'),...(attention?{templateAttention:attention}:{})});
+}
+export async function compareReferenceShape(template,candidate){return featureJob({operation:'reference-shape',template:template.toString('base64'),candidate:candidate.toString('base64')});}
+export async function instanceFeatureCompare(reference,candidate,referenceText=''){
+  await prepareFastFeatures();
+  const descriptor=await subjectDescriptor(reference);
+  if(!descriptor.valid)return {matched:false,reason:'参考主体不完整，无法核验商品实例'};
+  const focused=await instanceReference(descriptor,referenceText);
+  return comparePreparedInstances(descriptor.cropped,candidate,focused.attentionWeights);
 }
 async function featureJob(data){
   await prepareFastFeatures();

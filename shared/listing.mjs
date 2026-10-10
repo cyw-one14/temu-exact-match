@@ -6,9 +6,9 @@ const labels='brand|model|material|dimensions|size|capacity|quantity|number of p
 export function listingMetadata({title='',text='',structuredSpecs={},listingFields=[],sourceUrl='',capturedAt=''}={}){
   title=String(title||'');text=String(text||'');structuredSpecs=structuredSpecs&&typeof structuredSpecs==='object'?structuredSpecs:{};listingFields=Array.isArray(listingFields)?listingFields:[];
   const values=new Map(Object.keys(LISTING_LABELS).map(key=>[key,[]]));
-  const add=(key,value,evidence,source,ambiguous=false)=>{value=String(value??'').trim();if(value&&value.length<=200)values.get(key).push({value,evidence:String(evidence).trim(),source,ambiguous});};
+  const add=(key,value,evidence,source,ambiguous=false,evidenceUrl=sourceUrl)=>{value=String(value??'').trim();if(value&&value.length<=200)values.get(key).push({value,evidence:String(evidence).trim(),source,ambiguous,sourceUrl:evidenceUrl});};
   for(const key of values.keys())if(['string','number'].includes(typeof structuredSpecs[key]))add(key,structuredSpecs[key],String(structuredSpecs[key]),'structured-product');
-  for(const field of listingFields)for(const [key,pattern]of Object.entries(aliases))if(pattern.test(String(field.label||'').trim()))add(key,field.value,field.label+': '+field.value,'visible-field');
+  for(const field of listingFields)for(const [key,pattern]of Object.entries(aliases))if(pattern.test(String(field.label||'').trim()))add(key,field.value,field.label+': '+field.value,['public-jsonld','public-microdata'].includes(field.source)?field.source:'visible-field',false,field.sourceUrl||sourceUrl);
   // Captured card text is often flattened; stop at the next explicit field/price.
   const pattern=new RegExp('(?<![\\p{L}\\p{N}])('+labels+')\\s*[:：]\\s*(.{1,200}?)(?=\\s*(?:[;；\\n]|(?:'+labels+')\\s*[:：]|(?:price|sold|销量|已售出)\\s*[:：]|[$€£¥￥])|$)','giu');
   for(const match of String(text).matchAll(pattern))for(const [key,alias]of Object.entries(aliases))if(alias.test(match[1]))add(key,match[2],match[0],'listing-text');
@@ -20,7 +20,8 @@ export function listingMetadata({title='',text='',structuredSpecs={},listingFiel
     // Retain a literal piece/pair compound, e.g. 22pcs (11 Pairs). No unit-price
     // conversion or selected-variant inference is made from these title counts.
     const forms=new Set(counts.map(match=>Number(match[1])+' '+(/^(pairs?|双)$/i.test(match[2])?'pair':'pc')));
-    const compound=counts.length===2&&forms.size===2&&/\(/.test(span)&&/pair|双/i.test(span)&&/pcs?|pieces?|件|个/i.test(span);
+    const pair=counts.find(match=>/^(?:pairs?|双)$/i.test(match[2])),pieces=counts.find(match=>/^(?:pcs?|pieces?|件|个)$/i.test(match[2]));
+    const compound=counts.length===2&&pair&&pieces&&Number(pair[1])*2===Number(pieces[1])&&/^[\s(/-]*$/.test(title.slice(counts[0].index+counts[0][0].length,counts[1].index));
     add('quantity',span,title,'title-literal',forms.size>1&&!compound);
   }
   const materials=[...title.matchAll(/\b(?:stainless steel|natural sandalwood|sandalwood|silicone|latex|rubber|PVC|TPU|cotton|nylon|polyester|wood(?:en)?|plastic)\b|硅胶|乳胶|橡胶|不锈钢|塑料|檀木|木制|棉质/gi)];

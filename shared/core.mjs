@@ -151,7 +151,7 @@ export function decideProductMatch(comparison,referenceSpecs={},candidateText=''
     }
   }
   if(strict.status==='exact'&&!candidate.conflicts.length)return {...strict,differences:[],packDifference:null,listingDifferences,matchTier:'specs-verified'};
-  const visualConfirmed=['same_photo','identical'].includes(comparison?.visual)||comparison?.subject?.matched===true||comparison?.fastMatch?.matched===true;
+  const visualConfirmed=['same_photo','identical'].includes(comparison?.visual)||comparison?.subject?.matched===true||comparison?.fastMatch?.matched===true||comparison?.instanceMatch?.matched===true;
   if(visualConfirmed)return {status:'visual-match',matchTier:'appearance',differences:[],packDifference,listingDifferences,reason:'图片商品主体一致；文字信息只作参考',missing:[...new Set([...strict.missing.filter(value=>value!=='外观细节一致性'),...candidate.conflicts.map(key=>SPEC_LABELS[key]+'存在多个页面值，具体 SKU 未绑定'),...wording])]};
   return {...strict,status:'pending',differences:[],packDifference,listingDifferences,reason:'图片商品主体尚未确认，保留待核对',missing:[...new Set([...strict.missing,...wording])]};
 }

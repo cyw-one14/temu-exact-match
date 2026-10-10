@@ -14,6 +14,7 @@ let referenceFixture=null,comparisonRequests=0,lastSaved=null,batchSize=12,block
 let stagedFixture=false;
 let fastMock=false;
 let attentionMock=false;
+let instanceMock=false;
 const phases=[];
 const specText='Brand: Acme; Model: A12; Material: silicone; Capacity: 500ml; Quantity: 1pc';
 globalThis.chrome={windows:{getCurrent:async()=>({id:1})},storage:{onChanged:{addListener:fn=>storageListeners.push(fn)},session:{get:async()=>({temuMatch:saved}),set:async value=>{lastSaved=value['temuMatch:1'];}},local:{get:async()=>({preferences:{maxCandidates:batchSize}}),set:async()=>{}}},tabs:{create:async options=>{createdTabs.push(options);return{id:3};},query:async()=>[{id:1}],get:async()=>({status:'complete'}),remove:async()=>{},update:async()=>{}},runtime:{sendMessage:async message=>({ok:true,data:message.type==='collect-provider'?providerFixture:referenceFixture||fixture}),openOptionsPage:async()=>{}}};
@@ -30,6 +31,7 @@ globalThis.fetch=async(url,options)=>{
     const comparison={visual:samePhoto?'same_photo':'uncertain',samePhoto,imageSimilarity:samePhoto?1:.4,checks:localSpecChecks(body.referenceSpecs,body.candidateText),evidence:['图片比对'],differences:[]};
     if(stagedFixture&&body.phase==='subject-review'){if(fastMock)comparison.fastMatch={matched:true};else comparison.subject={matched:true};}
     if(attentionMock&&body.phase==='subject-review')comparison.subject={matched:true,valid:true,subjectSimilarity:.99,localSimilarity:.98,colorSimilarity:.99,attention:{applied:true,reason:'人体识别与颜色共同支持的区域已降权'}};
+    if(instanceMock&&body.phase==='subject-review'){comparison.subject=null;comparison.instanceMatch={matched:true,scope:'visible-product-instance'};}
     json={ok:true,comparison:body.phase==='image-priority'?{samePhoto,imageSimilarity:comparison.imageSimilarity,priorityScore:samePhoto?0:1,subject:{subjectSimilarity:1}}:{...comparison,...decideProductMatch(comparison,body.referenceSpecs,body.candidateText),matchStage:body.phase==='subject-review'?'subject-review':'page-image'}};
   }else throw new Error('Unexpected test request '+url);
   return {ok:true,json:async()=>json};
@@ -154,7 +156,7 @@ test('page-image matching finishes first, ignores subject scores and reviews onl
   assert.equal(lastSaved.items.find(item=>item.imageUrl.includes('new-background')).matchStage,'subject-review');
   assert.equal(document.getElementById('exact-results').children.length,2);
   assert.match(document.getElementById('exact-results').firstElementChild.textContent,/同图匹配|自动确认/);
-  assert.equal(lastSaved.matchingPolicy,'product-attention-v11');
+  assert.equal(lastSaved.matchingPolicy,'product-instance-v12');
 });
 
 test('automatic checks use captured images and card data without opening reference or candidate detail tabs',async()=>{
@@ -285,6 +287,26 @@ test('captured title attributes and explicit brand/model fields stay visible ind
   assert.doesNotMatch(imageEvidence.textContent,/上传产品的品牌|上传产品的型号/);
   assert.equal(lastSaved.items[0].checks.find(check=>check.key==='model').candidateValue,'G22');
   assert.equal(createdTabs.length,before);
+});
+
+test('multi-pack confirmation reuses only bound existing product images, captures explicit metadata and opens no detail pages',async()=>{
+ stagedFixture=true;fastMock=false;attentionMock=false;instanceMock=true;
+ const title='3 pairs Green Kitchen Gloves',imageUrl='https://img.kwcdn.com/gallery-main.jpg',gallery=['https://img.kwcdn.com/gallery-main.jpg','https://img.kwcdn.com/gallery-front.jpg'];
+ referenceFixture={...fixture,detail:{...fixture.products[0],id:'601123456789999',title,detailsText:title,rawText:title,variantAmbiguous:true,declaredImageSource:'bound-current-product-gallery',verifiedImages:gallery,listingFields:[{label:'Model',value:'G22',source:'public-microdata'}]}};
+ storageListeners[0]({'temuSelection:1':{newValue:{id:'selection-gallery',windowId:1,tabId:1,imageUrl,productId:'601123456789999',title}}},'session');await settle();
+ const before=createdTabs.length,start=phases.length;
+ providerFixture={...providerFixture,queryImageUrl:imageUrl,products:[{...fixture.products[0],title:'22pcs (11Pairs) Latex Gloves',imageUrl:'https://img.kwcdn.com/gallery-candidate.jpg',priceText:'$13.13'}]};
+ document.getElementById('read-provider').click();await settle();
+ const review=phases.slice(start).find(body=>body.phase==='subject-review');assert.deepEqual(review.referenceImages,gallery);assert.equal(review.referenceImageSource,'bound-current-product-gallery');assert.equal(review.referenceSpecs.model,'G22');
+ assert.equal(createdTabs.length,before);assert.match(document.getElementById('exact-results').textContent,/图中完整实例已核验/);assert.match(document.getElementById('exact-results').textContent,/\$13.13/);assert.match(document.getElementById('exact-results').textContent,/22pcs \(11Pairs\)/);
+});
+test('reading an already open product enriches same-ID provider fields without moving price/title/sales to another source',async()=>{
+ const before=createdTabs.length,original=providerFixture.products[0].title;
+ referenceFixture={...fixture,pageUrl:fixture.products[0].url,detail:{...fixture.products[0],title:'Detail title',detailsText:'Brand: Current Brand; Model: D77; Material: latex',structuredSpecs:{brand:'Current Brand',model:'D77'},listingFields:[{label:'Brand',value:'Current Brand',source:'public-jsonld'}],priceText:'$2.22'}};
+ document.getElementById('collect').click();await settle();
+ const row=lastSaved.items.find(item=>item.id===fixture.products[0].id&&item.salesSource==='provider-visible');assert.equal(row.structuredSpecs.brand,'Current Brand');assert.equal(row.price.raw,'$13.13');assert.equal(row.title,original);assert.equal(row.detailSourceUrl,fixture.products[0].url);
+ providerFixture={...providerFixture,products:providerFixture.products.map(item=>({...item,priceText:'$14.99'}))};document.getElementById('read-provider').click();await settle();
+ const updated=lastSaved.items.find(item=>item.id===fixture.products[0].id&&item.salesSource==='provider-visible');assert.equal(updated.structuredSpecs.brand,'Current Brand');assert.equal(updated.price.raw,'$14.99');assert.equal(createdTabs.length,before);
 });
 
 test.after(()=>window.dispatchEvent(new window.Event('pagehide')));

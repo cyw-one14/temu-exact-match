@@ -4,10 +4,11 @@ import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {normalizeImage,MAX_IMAGE_BYTES,sameProductImageAsset} from './images.mjs';
 import {modelState,prepareModel,imageBuffer,localSearchPhrase,localCompare,cloudProfile,cloudCompare,comparePixels,pageCompare,serial} from './vision.mjs';
-import {subjectState,prepareSubjects} from './subjects.mjs';
-import {fastFeatureState,prepareFastFeatures,closeFastFeatures} from './fast-features.mjs';
+import {subjectState,prepareSubjects,subjectDescriptor,compareDescriptors} from './subjects.mjs';
+import {fastFeatureState,prepareFastFeatures,closeFastFeatures,compareReferenceShape} from './fast-features.mjs';
 import {isProductMatch} from '../shared/core.mjs';
 import {attentionState} from './product-attention.mjs';
+import {recordSubjectResult} from './match-diagnostics.mjs';
 
 export const PORT=Number(process.env.TEMU_MATCH_PORT || 43187);
 const ROOT=new URL('../',import.meta.url);
@@ -76,7 +77,7 @@ export const server=http.createServer(async(req,res)=>{
     }
     res.setHeader('Content-Type','application/json; charset=utf-8');
     if(req.method==='GET' && path==='/health'){
-      res.end(JSON.stringify({ok:true,version:manifest.version,matchingPolicy:'product-attention-v11',engine:config.engine,configured:config.engine==='local'||Boolean(config.apiKey),model:subjectState,productAttention:attentionState,fastFeatures:fastFeatureState,diagnosticModel:modelState,extensionId}));return;
+      res.end(JSON.stringify({ok:true,version:manifest.version,matchingPolicy:'product-instance-v12',engine:config.engine,configured:config.engine==='local'||Boolean(config.apiKey),model:subjectState,productAttention:attentionState,fastFeatures:fastFeatureState,diagnosticModel:modelState,extensionId}));return;
     }
     if((!accepted&&!sameOriginRead) || req.headers['x-temu-client']!=='exact-match')throw Object.assign(new Error('请从插件或本机设置页面访问'),{status:403});
     if(req.method==='GET' && path==='/config'){
@@ -127,6 +128,20 @@ export const server=http.createServer(async(req,res)=>{
       result.matchStage='subject-review';
       result.matchedImageUrl=body.imageUrl;
       const alternativeErrors=[];
+      const gallery=['public-jsonld','bound-current-product-gallery'].includes(body.referenceImageSource)?[...new Set(Array.isArray(body.referenceImages)?body.referenceImages:[])].filter(url=>typeof url==='string'&&!sameProductImageAsset(url,body.referenceImageUrl)).slice(0,3):[];
+      if(!isProductMatch(result)&&gallery.length){
+        const anchor=await serial(()=>subjectDescriptor(reference));
+        for(const imageUrl of gallery)try{
+          const photo=await downloadImage(imageUrl),descriptor=await serial(()=>subjectDescriptor(photo.buffer));
+          const compatibility=compareDescriptors(anchor,descriptor);
+          // Same-product provenance alone cannot introduce a different color,
+          // accessory, category or unrelated image as a reference template.
+          if(!compatibility.valid||compatibility.subjectSimilarity<.75||compatibility.colorSimilarity<.88)continue;
+          const shape=await compareReferenceShape(anchor.cropped,descriptor.cropped);if(!shape.compatible)continue;
+          const evaluated=await serial(()=>localCompare(photo.buffer,candidate.buffer,specs,text,{subjectMatching:true,referenceText:imageOptions.referenceText}));
+          if(isProductMatch(evaluated)){result={...evaluated,matchStage:'subject-review',matchedImageUrl:body.imageUrl,matchedReferenceImageUrl:imageUrl,referenceEvidence:body.referenceImageSource,evidence:[...evaluated.evidence,'使用原商品当前页所属且与主图外观/颜色相容的图片补充参考；未打开商品页面，具体 SKU 未绑定']};break;}
+        }catch(error){alternativeErrors.push('参考图片：'+error.message);}
+      }
       if(!isProductMatch(result))for(const imageUrl of [...new Set(Array.isArray(body.candidateImages)?body.candidateImages:[])].filter(value=>typeof value==='string'&&value!==body.imageUrl).slice(0,2)){
         try{
           const alternative=await downloadImage(imageUrl);
@@ -137,6 +152,7 @@ export const server=http.createServer(async(req,res)=>{
         }catch(error){alternativeErrors.push(error.message);}
       }
       if(alternativeErrors.length)result.alternativeErrors=alternativeErrors;
+      await recordSubjectResult(body,reference,candidate.buffer,result);
       res.end(JSON.stringify({ok:true,comparison:result}));return;
     }
     throw Object.assign(new Error('接口不存在'),{status:404});
