@@ -245,9 +245,13 @@ export function cachedSubjectComparison(reference,candidate){
   const a=cache.get(key(reference)),b=cache.get(key(candidate));
   return a&&b?{...compareDescriptors(a,b),referencePreview:a.preview,candidatePreview:b.preview,model:'BiRefNet-lite + DINOv2-small'}:null;
 }
-export async function compareForegroundColors(reference,candidate){
+export async function compareForegroundColors(reference,candidate,options={}){
   const [a,b]=await Promise.all([subjectDescriptor(reference),subjectDescriptor(candidate)]);
-  return foregroundColorEvidence(a,b);
+  if(!a.valid||!b.valid)return foregroundColorEvidence(a,b);
+  const attendedA=await attentionDescriptor(a,options.referenceText||'');
+  const attendedB=await attentionDescriptor(b,options.candidateText||'');
+  const result=foregroundColorEvidence(attendedA,attendedB);
+  return {...result,scope:'product-attention-foreground',attention:{reference:attendedA.attention,candidate:attendedB.attention},reason:'分割前景内的商品关注颜色；仅降低明确人体区域权重，模糊区域保留，不是同款概率'};
 }
 export function foregroundColorEvidence(a,b){
   if(!a?.valid||!b?.valid||a.colors?.length!==64||b.colors?.length!==64)return {valid:false,similarity:null,reason:'前景配色无法读取'};

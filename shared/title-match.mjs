@@ -19,16 +19,16 @@ export function titleMatchEvidence(referenceTitle,candidateTitle,referenceBrand=
   const identical=a.length>=3&&a.length===b.length&&shared.length===a.length;
   const highSimilarity=!categoryConflict&&shared.length>=3&&(identical||(Math.max(ca,cb)>=.7&&Math.min(ca,cb)>=.15)||(sameCategory&&shared.length>=4&&Math.min(ca,cb)>=.12));
   const brandA=knownBrand(referenceBrand),brandB=knownBrand(candidateBrand),sameBrand=Boolean(brandA&&brandA===brandB);
-  const brandAndType=sameBrand&&sameCategory&&shared.length>=2;
   const unknown=!a.length||!b.length||(!shared.length&&!(referenceFamily&&candidateFamily));
-  return {revision:'literal-title-v1',score,sharedTerms:shared,referenceFamily,candidateFamily,categoryConflict,sameCategory,sameBrand,highSimilarity,identical,
-    reviewEligible:!categoryConflict&&(unknown||sameCategory||shared.length>=2),
-    inferenceEligible:highSimilarity||brandAndType,basis:highSimilarity?'high-title-similarity':brandAndType?'same-brand-and-type':'',
-    reason:categoryConflict?'标题显示不同商品类型，暂缓后续主体核对（不认定不同款）':highSimilarity?'商品标题关键描述高度重合':brandAndType?'明确品牌相同且标题商品类型一致':unknown?'标题证据不足，保留图片核对':'按标题关键描述筛选图片核对'};
+  const similar=!categoryConflict&&(highSimilarity||(shared.length>=2&&score>=.35));
+  const group=similar?'similar':unknown?'unknown':'dissimilar';
+  return {revision:'literal-title-v2',score,sharedTerms:shared,referenceFamily,candidateFamily,categoryConflict,sameCategory,sameBrand,highSimilarity,identical,similar,group,
+    reviewEligible:true,inferenceEligible:similar,basis:similar?'similar-title':'',
+    reason:similar?'标题相似组：先核对主体，未匹配时可用主体颜色补充判断':unknown?'标题证据不足：仍核对主体，不使用颜色单独放行':'标题不相似组：仍核对主体，主体一致即为同款'};
 }
 
-export function inferListingColorMatch(titleEvidence,colorEvidence){
-  const eligible=titleEvidence?.revision==='literal-title-v1'&&titleEvidence.inferenceEligible&&!titleEvidence.categoryConflict;
+export function inferListingColorMatch(titleEvidence,colorEvidence,subjectReview={}){
+  const eligible=titleEvidence?.revision==='literal-title-v2'&&titleEvidence.group==='similar'&&subjectReview.completed===true&&subjectReview.matched===false;
   const matched=Boolean(eligible&&colorEvidence?.valid&&Number.isFinite(colorEvidence.similarity)&&colorEvidence.similarity>=.85&&colorEvidence.similarity<=1.000001);
-  return {matched,titleEvidence,colorEvidence,reason:matched?'标题关键描述 / 品牌商品类型相符，前景粗配色接近；推定同款，未证明结构细节一致':eligible?'前景配色未达到推定要求，继续主体特征核对':'标题 / 品牌商品类型证据不足，继续主体特征核对'};
+  return {matched,titleEvidence,colorEvidence,subjectReview,reason:matched?'主体未匹配，但标题相似且主体关注区域颜色相近，按用户规则归为同款':eligible?(colorEvidence?.valid?'主体颜色不够接近，仍无法确认同款':'主体颜色未可靠读取，不能按颜色放行'):'仅标题相似组在主体核对完成且未匹配后允许颜色补充判断'};
 }

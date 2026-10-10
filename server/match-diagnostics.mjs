@@ -13,7 +13,8 @@ export async function recordSubjectResult(body,reference,candidate,result){
   item.phase=body.phase||'page-match';
   item.candidateId=/^\d{6,25}$/.test(String(body.candidateId||''))?String(body.candidateId):'';
   item.photo={samePhoto:Boolean(result.samePhoto),pixelIdentical:Boolean(result.pixelIdentical),assetVerified:Boolean(result.assetVerified),reencodedPhoto:Boolean(result.reencodedPhoto),imageSimilarity:result.imageSimilarity??null,photoEncoding:result.photoEncoding||null};
-  if(result.titleEvidence)item.titleEvidence={score:result.titleEvidence.score,highSimilarity:result.titleEvidence.highSimilarity,sameBrand:result.titleEvidence.sameBrand,basis:result.titleEvidence.basis};
+  if(result.titleEvidence)item.titleEvidence={score:result.titleEvidence.score,group:result.titleEvidence.group,similar:result.titleEvidence.similar,highSimilarity:result.titleEvidence.highSimilarity,sameBrand:result.titleEvidence.sameBrand,basis:result.titleEvidence.basis};
+  if(result.subjectReview)item.subjectReview=result.subjectReview;
   if(result.listingColorMatch)item.listingColorMatch={matched:result.listingColorMatch.matched,colorEvidence:result.listingColorMatch.colorEvidence};
   const job=queue.then(async()=>{let entries=[];try{const text=await readFile(file,'utf8');if(text.length<2000000){const saved=JSON.parse(text);if(Array.isArray(saved))entries=saved;}}catch{}
     await mkdir(directory,{recursive:true});entries.push(item);await writeFile(file,JSON.stringify(entries.slice(-100),null,2));

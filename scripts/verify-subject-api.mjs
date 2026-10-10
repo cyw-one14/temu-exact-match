@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 const base='http://127.0.0.1:43187';
 const manifest=JSON.parse(await readFile(new URL('../extension/manifest.json',import.meta.url),'utf8'));
 const id=[...createHash('sha256').update(Buffer.from(manifest.key,'base64')).digest().subarray(0,16)].map(n=>String.fromCharCode(97+(n>>4),97+(n&15))).join('');
-const health=await(await fetch(base+'/health')).json();assert.equal(health.engine,'local');assert.equal(health.matchingPolicy,'title-photo-v14');
+const health=await(await fetch(base+'/health')).json();assert.equal(health.engine,'local');assert.equal(health.matchingPolicy,'title-groups-v15');
 const report=[];
 for(const [name,expected]of [['same-subject-new-background','visual-match'],['changed-color','pending']]){
   const buffer=await readFile(new URL('../.cache/subject-validation/'+name+'.png',import.meta.url));

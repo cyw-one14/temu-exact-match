@@ -6,8 +6,9 @@ import {normalizeImage,MAX_IMAGE_BYTES,sameProductImageAsset} from './images.mjs
 import {modelState,prepareModel,imageBuffer,localSearchPhrase,localCompare,cloudProfile,cloudCompare,comparePixels,pageCompare,serial} from './vision.mjs';
 import {subjectState,prepareSubjects,subjectDescriptor,compareDescriptors,compareForegroundColors} from './subjects.mjs';
 import {fastFeatureState,prepareFastFeatures,closeFastFeatures,compareReferenceShape} from './fast-features.mjs';
-import {isProductMatch,decideProductMatch,listingSpecs} from '../shared/core.mjs';
-import {titleMatchEvidence,inferListingColorMatch} from '../shared/title-match.mjs';
+import {isProductMatch,listingSpecs} from '../shared/core.mjs';
+import {titleMatchEvidence} from '../shared/title-match.mjs';
+import {groupedProductReview} from './match-flow.mjs';
 import {attentionState} from './product-attention.mjs';
 import {recordSubjectResult} from './match-diagnostics.mjs';
 
@@ -78,7 +79,7 @@ export const server=http.createServer(async(req,res)=>{
     }
     res.setHeader('Content-Type','application/json; charset=utf-8');
     if(req.method==='GET' && path==='/health'){
-      res.end(JSON.stringify({ok:true,version:manifest.version,matchingPolicy:'title-photo-v14',engine:config.engine,configured:config.engine==='local'||Boolean(config.apiKey),model:subjectState,productAttention:attentionState,fastFeatures:fastFeatureState,diagnosticModel:modelState,extensionId}));return;
+      res.end(JSON.stringify({ok:true,version:manifest.version,matchingPolicy:'title-groups-v15',engine:config.engine,configured:config.engine==='local'||Boolean(config.apiKey),model:subjectState,productAttention:attentionState,fastFeatures:fastFeatureState,diagnosticModel:modelState,extensionId}));return;
     }
     if((!accepted&&!sameOriginRead) || req.headers['x-temu-client']!=='exact-match')throw Object.assign(new Error('请从插件或本机设置页面访问'),{status:403});
     if(req.method==='GET' && path==='/config'){
@@ -127,47 +128,44 @@ export const server=http.createServer(async(req,res)=>{
       }
       imageOptions.subjectMatching=true;
       const titleEvidence=titleMatchEvidence(body.referenceTitle,String(body.candidateTitle||'').slice(0,2000),specs.brand,listingSpecs(text).specs.brand);
-      let result=await pageCompare(reference,candidate.buffer,specs,text,imageOptions);
-      if(!isProductMatch(result)&&titleEvidence.inferenceEligible){
-        let color;
-        try{color=await serial(()=>compareForegroundColors(reference,candidate.buffer));}
-        catch(error){color={valid:false,similarity:null,reason:'前景配色读取失败：'+error.message.slice(0,120)};}
-        const listingColorMatch=inferListingColorMatch(titleEvidence,color);
-        result={...result,listingColorMatch,...decideProductMatch({...result,listingColorMatch},specs,text),evidence:[...result.evidence,listingColorMatch.reason]};
-      }
-      if(!isProductMatch(result)){
-        const original=result;
-        result=await serial(()=>config.engine==='cloud'?cloudCompare(config,body.referenceImage,candidate.dataUrl,specs,text,imageOptions):localCompare(reference,candidate.buffer,specs,text,imageOptions));
-        if(original.listingColorMatch)result.listingColorMatch=original.listingColorMatch;
-      }
-      result.titleEvidence=titleEvidence;
-      result.matchStage='subject-review';
-      result.matchedImageUrl=body.imageUrl;
-      const alternativeErrors=[];
-      const gallery=['public-jsonld','bound-current-product-gallery'].includes(body.referenceImageSource)?[...new Set(Array.isArray(body.referenceImages)?body.referenceImages:[])].filter(url=>typeof url==='string'&&!sameProductImageAsset(url,body.referenceImageUrl)).slice(0,3):[];
-      if(!isProductMatch(result)&&gallery.length){
-        const anchor=await serial(()=>subjectDescriptor(reference));
-        for(const imageUrl of gallery)try{
-          const photo=await downloadImage(imageUrl),descriptor=await serial(()=>subjectDescriptor(photo.buffer));
-          const compatibility=compareDescriptors(anchor,descriptor);
-          // Same-product provenance alone cannot introduce a different color,
-          // accessory, category or unrelated image as a reference template.
-          if(!compatibility.valid||compatibility.subjectSimilarity<.75||compatibility.colorSimilarity<.88)continue;
-          const shape=await compareReferenceShape(anchor.cropped,descriptor.cropped);if(!shape.compatible)continue;
-          const evaluated=await serial(()=>localCompare(photo.buffer,candidate.buffer,specs,text,{subjectMatching:true,referenceText:imageOptions.referenceText}));
-          if(isProductMatch(evaluated)){result={...evaluated,matchStage:'subject-review',matchedImageUrl:body.imageUrl,matchedReferenceImageUrl:imageUrl,referenceEvidence:body.referenceImageSource,evidence:[...evaluated.evidence,'使用原商品当前页所属且与主图外观/颜色相容的图片补充参考；未打开商品页面，具体 SKU 未绑定']};break;}
-        }catch(error){alternativeErrors.push('参考图片：'+error.message);}
-      }
-      if(!isProductMatch(result))for(const imageUrl of [...new Set(Array.isArray(body.candidateImages)?body.candidateImages:[])].filter(value=>typeof value==='string'&&value!==body.imageUrl).slice(0,2)){
-        try{
-          const alternative=await downloadImage(imageUrl);
-          const options={sameAsset:sameProductImageAsset(body.referenceImageUrl,imageUrl),subjectMatching:true};
-          const evaluated=await serial(()=>config.engine==='cloud'?cloudCompare(config,body.referenceImage,alternative.dataUrl,specs,text,options):localCompare(reference,alternative.buffer,specs,text,options));
-          if(isProductMatch(evaluated)||(evaluated.subject?.subjectSimilarity||0)>(result.subject?.subjectSimilarity||0))result={...evaluated,matchStage:'subject-review',matchedImageUrl:imageUrl};
-          if(isProductMatch(result))break;
-        }catch(error){alternativeErrors.push(error.message);}
-      }
-      if(alternativeErrors.length)result.alternativeErrors=alternativeErrors;
+      const review=async()=>{
+        let result=await pageCompare(reference,candidate.buffer,specs,text,imageOptions);
+        if(!isProductMatch(result)){
+          result=await serial(()=>config.engine==='cloud'?cloudCompare(config,body.referenceImage,candidate.dataUrl,specs,text,imageOptions):localCompare(reference,candidate.buffer,specs,text,imageOptions));
+        }
+        result.matchStage='subject-review';
+        result.matchedImageUrl=body.imageUrl;
+        const alternativeErrors=[];
+        const gallery=['public-jsonld','bound-current-product-gallery'].includes(body.referenceImageSource)?[...new Set(Array.isArray(body.referenceImages)?body.referenceImages:[])].filter(url=>typeof url==='string'&&!sameProductImageAsset(url,body.referenceImageUrl)).slice(0,3):[];
+        if(!isProductMatch(result)&&gallery.length){
+          const anchor=await serial(()=>subjectDescriptor(reference));
+          for(const imageUrl of gallery)try{
+            const photo=await downloadImage(imageUrl),descriptor=await serial(()=>subjectDescriptor(photo.buffer));
+            const compatibility=compareDescriptors(anchor,descriptor);
+            // Same-product provenance alone cannot introduce a different color,
+            // accessory, category or unrelated image as a reference template.
+            if(!compatibility.valid||compatibility.subjectSimilarity<.75||compatibility.colorSimilarity<.88)continue;
+            const shape=await compareReferenceShape(anchor.cropped,descriptor.cropped);if(!shape.compatible)continue;
+            const evaluated=await serial(()=>localCompare(photo.buffer,candidate.buffer,specs,text,{subjectMatching:true,referenceText:imageOptions.referenceText}));
+            if(isProductMatch(evaluated)){result={...evaluated,matchStage:'subject-review',matchedImageUrl:body.imageUrl,matchedReferenceImageUrl:imageUrl,referenceEvidence:body.referenceImageSource,evidence:[...evaluated.evidence,'使用原商品当前页所属且与主图外观/颜色相容的图片补充参考；未打开商品页面，具体 SKU 未绑定']};break;}
+          }catch(error){alternativeErrors.push('参考图片：'+error.message);}
+        }
+        if(!isProductMatch(result))for(const imageUrl of [...new Set(Array.isArray(body.candidateImages)?body.candidateImages:[])].filter(value=>typeof value==='string'&&value!==body.imageUrl).slice(0,2)){
+          try{
+            const alternative=await downloadImage(imageUrl);
+            const options={sameAsset:sameProductImageAsset(body.referenceImageUrl,imageUrl),subjectMatching:true};
+            const evaluated=await serial(()=>config.engine==='cloud'?cloudCompare(config,body.referenceImage,alternative.dataUrl,specs,text,options):localCompare(reference,alternative.buffer,specs,text,options));
+            if(isProductMatch(evaluated)||(evaluated.subject?.subjectSimilarity||0)>(result.subject?.subjectSimilarity||0))result={...evaluated,matchStage:'subject-review',matchedImageUrl:imageUrl};
+            if(isProductMatch(result))break;
+          }catch(error){alternativeErrors.push(error.message);}
+        }
+        if(alternativeErrors.length)result.alternativeErrors=alternativeErrors;
+        return result;
+      };
+      const result=await groupedProductReview({titleEvidence,review,referenceSpecs:specs,candidateText:text,colors:async reviewed=>{
+        const selected=reviewed.matchedImageUrl===body.imageUrl?candidate:await downloadImage(reviewed.matchedImageUrl);
+        return serial(()=>compareForegroundColors(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text}));
+      }});
       if(PORT===43187)await recordSubjectResult(body,reference,candidate.buffer,result);
       res.end(JSON.stringify({ok:true,comparison:result}));return;
     }

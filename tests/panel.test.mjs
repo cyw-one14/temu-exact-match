@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {parseHTML} from 'linkedom';
 import {localSpecChecks,decideProductMatch} from '../shared/core.mjs';
+import {titleMatchEvidence} from '../shared/title-match.mjs';
+import {groupedProductReview} from '../server/match-flow.mjs';
 const {document,window}=parseHTML(await readFile(new URL('../extension/panel.html',import.meta.url),'utf8'));
 globalThis.document=document;globalThis.window=window;
 const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
@@ -33,7 +35,10 @@ globalThis.fetch=async(url,options)=>{
     if(stagedFixture&&body.phase==='subject-review'){if(fastMock)comparison.fastMatch={matched:true};else comparison.subject={matched:true};}
     if(attentionMock&&body.phase==='subject-review')comparison.subject={matched:true,valid:true,subjectSimilarity:.99,localSimilarity:.98,colorSimilarity:.99,attention:{applied:true,reason:'人体识别与颜色共同支持的区域已降权'}};
     if(instanceMock&&body.phase==='subject-review'){comparison.subject=null;comparison.instanceMatch={matched:true,scope:'visible-product-instance'};}
-    if(inferredMock&&body.phase==='subject-review'){comparison.subject=null;comparison.instanceMatch=null;comparison.fastMatch=null;comparison.listingColorMatch={matched:true,colorEvidence:{valid:true,similarity:.9},reason:'标题及配色推定，未核验主体细节'};}
+    if(inferredMock&&body.phase==='subject-review'){
+      comparison.subject={matched:false,valid:true,subjectSimilarity:.7};comparison.instanceMatch=null;comparison.fastMatch=null;
+      Object.assign(comparison,await groupedProductReview({titleEvidence:titleMatchEvidence(body.referenceTitle,body.candidateTitle),review:async()=>({...comparison,...decideProductMatch(comparison,body.referenceSpecs,body.candidateText)}),colors:async()=>({valid:true,similarity:.9}),referenceSpecs:body.referenceSpecs,candidateText:body.candidateText}));
+    }
     json={ok:true,comparison:body.phase==='image-priority'?{samePhoto,imageSimilarity:comparison.imageSimilarity,priorityScore:samePhoto?0:1,subject:{subjectSimilarity:1}}:{...comparison,...decideProductMatch(comparison,body.referenceSpecs,body.candidateText),matchStage:body.phase==='subject-review'?'subject-review':'page-image'}};
   }else throw new Error('Unexpected test request '+url);
   return {ok:true,json:async()=>json};
@@ -158,7 +163,7 @@ test('page-image matching finishes first, ignores subject scores and reviews onl
   assert.equal(lastSaved.items.find(item=>item.imageUrl.includes('new-background')).matchStage,'subject-review');
   assert.equal(document.getElementById('exact-results').children.length,2);
   assert.match(document.getElementById('exact-results').firstElementChild.textContent,/同图匹配|自动确认/);
-  assert.equal(lastSaved.matchingPolicy,'title-photo-v14');
+  assert.equal(lastSaved.matchingPolicy,'title-groups-v15');
 });
 
 test('automatic checks use captured images and card data without opening reference or candidate detail tabs',async()=>{
@@ -285,7 +290,7 @@ test('captured title attributes and explicit brand/model fields stay visible ind
   const before=createdTabs.length;
   document.getElementById('read-provider').click();await settle();
   const card=document.getElementById('exact-results').firstElementChild;
-  assert.match(card.textContent,/22pcs \(11Pairs\)/);assert.match(card.textContent,/材质 Latex/);assert.match(card.textContent,/Actual Brand/);assert.match(card.textContent,/G22/);assert.match(card.textContent,/标题原文/);assert.match(card.textContent,/品牌可辅助推定/);assert.match(card.textContent,/\$13.13/);
+  assert.match(card.textContent,/22pcs \(11Pairs\)/);assert.match(card.textContent,/材质 Latex/);assert.match(card.textContent,/Actual Brand/);assert.match(card.textContent,/G22/);assert.match(card.textContent,/标题原文/);assert.match(card.textContent,/品牌不单独决定同款/);assert.match(card.textContent,/\$13.13/);
   const imageEvidence=[...card.querySelectorAll('details')].find(detail=>detail.querySelector('summary')?.textContent==='查看核对依据');
   assert.doesNotMatch(imageEvidence.textContent,/上传产品的品牌|上传产品的型号/);
   assert.equal(lastSaved.items[0].checks.find(check=>check.key==='model').candidateValue,'G22');
@@ -312,7 +317,7 @@ test('reading an already open product enriches same-ID provider fields without m
  const updated=lastSaved.items.find(item=>item.id===fixture.products[0].id&&item.salesSource==='provider-visible');assert.equal(updated.structuredSpecs.brand,'Current Brand');assert.equal(updated.price.raw,'$14.99');assert.equal(createdTabs.length,before);
 });
 
-test('titles order requests first; unrelated categories avoid slow review; inferred cards retain price/title/link without supplying verified keywords',async()=>{
+test('both title groups are reviewed; only similar titles use post-review color and preserve price/title/link with sourced keywords',async()=>{
   stagedFixture=true;fastMock=false;attentionMock=false;instanceMock=false;inferredMock=true;
   const title='3 pairs Thick Latex Kitchen Gloves',imageUrl='https://img.kwcdn.com/title-first-reference.jpg';
   referenceFixture={...fixture,detail:{...fixture.products[0],id:'601123456789999',title,detailsText:title,rawText:title,variantAmbiguous:false}};
@@ -323,13 +328,25 @@ test('titles order requests first; unrelated categories avoid slow review; infer
   const before=createdTabs.length,start=phases.length;
   document.getElementById('read-provider').click();await settle();
   const requests=phases.slice(start);assert.equal(requests.find(body=>body.phase==='image-priority').imageUrl,near.imageUrl);
-  assert.equal(requests.some(body=>body.phase==='subject-review'&&body.imageUrl===unrelated.imageUrl),false);
+  assert.equal(requests.some(body=>body.phase==='subject-review'&&body.imageUrl===unrelated.imageUrl),true);
   const review=requests.find(body=>body.phase==='subject-review');assert.equal(review.candidateTitle,near.title);assert.equal(review.referenceTitle,title);
-  const row=lastSaved.items.find(item=>item.id===near.id);assert.equal(row.status,'inferred-match');assert.equal(row.price.raw,'$13.13');assert.equal(row.title,near.title);assert.equal(row.url,near.url);
-  assert.match(document.getElementById('exact-results').textContent,/标题 \/ 配色推定同款/);assert.match(document.getElementById('exact-results').textContent,/细节未核验/);
-  assert.match(document.getElementById('count').textContent,/1 个推定/);assert.equal(document.getElementById('keywords').querySelectorAll('a').length,0);
+  const row=lastSaved.items.find(item=>item.id===near.id);assert.equal(row.status,'rule-match');assert.equal(row.price.raw,'$13.13');assert.equal(row.title,near.title);assert.equal(row.url,near.url);
+  assert.match(document.getElementById('exact-results').textContent,/同款 · 标题相似 \/ 主体颜色相近/);assert.match(document.getElementById('exact-results').textContent,/主体细节未匹配/);
+  assert.match(document.getElementById('count').textContent,/1 个主体颜色补充/);assert.ok(document.getElementById('keywords').querySelectorAll('a').length>0);assert.match(document.getElementById('keywords').textContent,/主体颜色补充同款/);
   assert.equal(lastSaved.items.find(item=>item.id===unrelated.id).status,'pending');assert.equal(createdTabs.length,before);
   inferredMock=false;
+});
+
+test('dissimilar titles still become matches when their subjects match, with no new product tabs',async()=>{
+  stagedFixture=true;fastMock=false;attentionMock=false;instanceMock=false;inferredMock=false;
+  const imageUrl='https://img.kwcdn.com/different-title-reference.jpg',title='Thick Latex Kitchen Gloves';
+  referenceFixture={...fixture,detail:{...fixture.products[0],id:'601123456789999',title,detailsText:title,rawText:title,variantAmbiguous:false}};
+  storageListeners[0]({'temuSelection:1':{newValue:{id:'selection-different-title',windowId:1,tabId:1,imageUrl,productId:'601123456789999',title}}},'session');await settle();
+  const candidate={...fixture.products[0],title:'Green Kitchen Water Bottle',imageUrl:'https://img.kwcdn.com/dissimilar-title-same-subject.jpg',priceText:'$3.75'};
+  providerFixture={...providerFixture,queryImageUrl:imageUrl,products:[candidate]};const before=createdTabs.length,start=phases.length;
+  document.getElementById('read-provider').click();await settle();
+  assert.ok(phases.slice(start).some(body=>body.phase==='subject-review'&&body.candidateTitle===candidate.title));
+  assert.equal(lastSaved.items[0].status,'visual-match');assert.equal(lastSaved.items[0].titleEvidence.group,'dissimilar');assert.match(document.getElementById('exact-results').textContent,/\$3.75/);assert.equal(createdTabs.length,before);
 });
 
 test.after(()=>window.dispatchEvent(new window.Event('pagehide')));
