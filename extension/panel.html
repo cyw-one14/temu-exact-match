@@ -7,7 +7,7 @@
   <section class="upload-section">
     <label for="upload" class="upload-label"><span class="upload-symbol">＋</span><strong>上传产品图片</strong><span>PNG / JPG / WebP · 最大 8 MB</span><input id="upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
     <div id="reference" class="reference" hidden><img id="reference-image" alt="用户上传的产品"><div><strong id="reference-name">待识别产品</strong><p id="reference-description"></p><button id="replace-image" class="quiet" type="button">更换图片</button></div></div>
-    <details class="specifications"><summary>页面信息 · 自动读取 / 可选备注</summary><p class="hint">同款以图片商品主体一致为标准。标题、品牌、型号、材质、尺寸和数量仅作页面信息提示，不参与同款排除。</p><div class="spec-grid">
+    <details class="specifications"><summary>页面信息 · 自动读取 / 可选备注</summary><p class="hint">标题优先筛选商品。标题高度相似，或同品牌且同商品类型，结合前景配色可推定同款；主体核验与推定结果分别标注。数量、尺寸等规格差异只作附注。</p><div class="spec-grid">
       <label>品牌<input id="spec-brand" placeholder="如有标注，请照实填写"></label>
       <label>型号<input id="spec-model" placeholder="如 A123"></label>
       <label>材质<input id="spec-material" placeholder="使用站内英文规格更易核对"></label>
@@ -38,11 +38,11 @@
   </section>
   <section id="keyword-section" hidden>
     <div class="section-header"><h2>畅销同款商品关键词</h2><span id="keyword-caption">取销量前 3 款</span></div>
-    <p class="hint">从已自动匹配商品中按页面销量挑选。关键词与标题原词分别标注；不代表关键词自身的搜索量或转化率。</p>
+    <p class="hint">从已核验同款中按页面销量挑选，推定结果不参与此推荐。关键词与标题原词分别标注；不代表关键词自身的搜索量或转化率。</p>
     <div id="keywords" class="keywords"></div>
     <details><summary>手动检索词</summary><p class="hint">可使用上方商品原词，或自行填写检索词。</p><div id="retrieval-keywords" class="keywords"></div><div class="manual-search"><label for="manual-keyword" class="visually-hidden">手动填写搜索词</label><input id="manual-keyword" placeholder="手动填写搜索词"><button id="add-keyword" type="button">添加</button></div><button id="search-keywords" type="button">检索已选关键词</button></details>
   </section>
-  <footer>同款只按图片中的商品主体判断。价格、标题和链接来自页面；SKU、优惠条件和结算价可能不同。</footer>
+  <footer>结果区分主体核验与标题 / 配色推定。价格、标题和链接来自页面；SKU、优惠条件和结算价可能不同。</footer>
 </main>
 <script type="module" src="panel.js"></script>
 </body></html>

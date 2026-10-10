@@ -245,3 +245,12 @@ export function cachedSubjectComparison(reference,candidate){
   const a=cache.get(key(reference)),b=cache.get(key(candidate));
   return a&&b?{...compareDescriptors(a,b),referencePreview:a.preview,candidatePreview:b.preview,model:'BiRefNet-lite + DINOv2-small'}:null;
 }
+export async function compareForegroundColors(reference,candidate){
+  const [a,b]=await Promise.all([subjectDescriptor(reference),subjectDescriptor(candidate)]);
+  return foregroundColorEvidence(a,b);
+}
+export function foregroundColorEvidence(a,b){
+  if(!a?.valid||!b?.valid||a.colors?.length!==64||b.colors?.length!==64)return {valid:false,similarity:null,reason:'前景配色无法读取'};
+  const similarity=a.colors.reduce((sum,value,i)=>sum+Math.sqrt(value*(b.colors[i]||0)),0);
+  return {valid:true,similarity,required:.85,scope:'segmented-foreground',reason:'原分割前景的粗颜色分布；可能包含手或其他物品，不是同款概率'};
+}

@@ -4,9 +4,10 @@ import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {normalizeImage,MAX_IMAGE_BYTES,sameProductImageAsset} from './images.mjs';
 import {modelState,prepareModel,imageBuffer,localSearchPhrase,localCompare,cloudProfile,cloudCompare,comparePixels,pageCompare,serial} from './vision.mjs';
-import {subjectState,prepareSubjects,subjectDescriptor,compareDescriptors} from './subjects.mjs';
+import {subjectState,prepareSubjects,subjectDescriptor,compareDescriptors,compareForegroundColors} from './subjects.mjs';
 import {fastFeatureState,prepareFastFeatures,closeFastFeatures,compareReferenceShape} from './fast-features.mjs';
-import {isProductMatch} from '../shared/core.mjs';
+import {isProductMatch,decideProductMatch,listingSpecs} from '../shared/core.mjs';
+import {titleMatchEvidence,inferListingColorMatch} from '../shared/title-match.mjs';
 import {attentionState} from './product-attention.mjs';
 import {recordSubjectResult} from './match-diagnostics.mjs';
 
@@ -77,7 +78,7 @@ export const server=http.createServer(async(req,res)=>{
     }
     res.setHeader('Content-Type','application/json; charset=utf-8');
     if(req.method==='GET' && path==='/health'){
-      res.end(JSON.stringify({ok:true,version:manifest.version,matchingPolicy:'product-instance-v12',engine:config.engine,configured:config.engine==='local'||Boolean(config.apiKey),model:subjectState,productAttention:attentionState,fastFeatures:fastFeatureState,diagnosticModel:modelState,extensionId}));return;
+      res.end(JSON.stringify({ok:true,version:manifest.version,matchingPolicy:'title-first-v13',engine:config.engine,configured:config.engine==='local'||Boolean(config.apiKey),model:subjectState,productAttention:attentionState,fastFeatures:fastFeatureState,diagnosticModel:modelState,extensionId}));return;
     }
     if((!accepted&&!sameOriginRead) || req.headers['x-temu-client']!=='exact-match')throw Object.assign(new Error('请从插件或本机设置页面访问'),{status:403});
     if(req.method==='GET' && path==='/config'){
@@ -124,7 +125,21 @@ export const server=http.createServer(async(req,res)=>{
         res.end(JSON.stringify({ok:true,comparison:{...result,matchedImageUrl:body.imageUrl}}));return;
       }
       imageOptions.subjectMatching=true;
-      let result=await serial(()=>config.engine==='cloud'?cloudCompare(config,body.referenceImage,candidate.dataUrl,specs,text,imageOptions):localCompare(reference,candidate.buffer,specs,text,imageOptions));
+      const titleEvidence=titleMatchEvidence(body.referenceTitle,String(body.candidateTitle||'').slice(0,2000),specs.brand,listingSpecs(text).specs.brand);
+      let result=await pageCompare(reference,candidate.buffer,specs,text,imageOptions);
+      if(!isProductMatch(result)&&titleEvidence.inferenceEligible){
+        let color;
+        try{color=await serial(()=>compareForegroundColors(reference,candidate.buffer));}
+        catch(error){color={valid:false,similarity:null,reason:'前景配色读取失败：'+error.message.slice(0,120)};}
+        const listingColorMatch=inferListingColorMatch(titleEvidence,color);
+        result={...result,listingColorMatch,...decideProductMatch({...result,listingColorMatch},specs,text),evidence:[...result.evidence,listingColorMatch.reason]};
+      }
+      if(!isProductMatch(result)){
+        const original=result;
+        result=await serial(()=>config.engine==='cloud'?cloudCompare(config,body.referenceImage,candidate.dataUrl,specs,text,imageOptions):localCompare(reference,candidate.buffer,specs,text,imageOptions));
+        if(original.listingColorMatch)result.listingColorMatch=original.listingColorMatch;
+      }
+      result.titleEvidence=titleEvidence;
       result.matchStage='subject-review';
       result.matchedImageUrl=body.imageUrl;
       const alternativeErrors=[];

@@ -68,7 +68,7 @@ export function decideExact(comparison, referenceSpecs = {}, candidateText = '')
   return { status:'exact', reason:'图片 / 外观与已提供规格均核对一致', missing:[] };
 }
 
-export function isProductMatch(item){return ['exact','visual-match'].includes(item?.status);}
+export function isProductMatch(item){return ['exact','visual-match','inferred-match'].includes(item?.status);}
 
 // Only explicit, unambiguous title counts. Multi-SKU titles remain unknown.
 export function titleQuantity(title){
@@ -129,7 +129,7 @@ export function specConflict(key,reference,candidate){
 }
 
 export function decideProductMatch(comparison,referenceSpecs={},candidateText=''){
-  // Product identity is image-only. Listing specifications are annotations.
+  // Verified identity remains image-only. Listing/color inference has a distinct tier.
   // Unstructured differences can contain listing text, so they never veto it.
   const imageDifferences=(comparison?.visualChecks||[]).filter(check=>['shape','construction','color','pattern','logo','accessories'].includes(check?.key)&&check.status==='different'&&String(check.evidence||'').trim().length>=4).map(check=>String(check.evidence));
   if(comparison?.visual==='different'||imageDifferences.length)return {status:'different',packDifference:null,listingDifferences:[],reason:'图片商品主体存在差异',differences:imageDifferences.length?imageDifferences:comparison?.differences||[],missing:[]};
@@ -153,6 +153,7 @@ export function decideProductMatch(comparison,referenceSpecs={},candidateText=''
   if(strict.status==='exact'&&!candidate.conflicts.length)return {...strict,differences:[],packDifference:null,listingDifferences,matchTier:'specs-verified'};
   const visualConfirmed=['same_photo','identical'].includes(comparison?.visual)||comparison?.subject?.matched===true||comparison?.fastMatch?.matched===true||comparison?.instanceMatch?.matched===true;
   if(visualConfirmed)return {status:'visual-match',matchTier:'appearance',differences:[],packDifference,listingDifferences,reason:'图片商品主体一致；文字信息只作参考',missing:[...new Set([...strict.missing.filter(value=>value!=='外观细节一致性'),...candidate.conflicts.map(key=>SPEC_LABELS[key]+'存在多个页面值，具体 SKU 未绑定'),...wording])]};
+  if(comparison?.listingColorMatch?.matched===true)return {status:'inferred-match',matchTier:'listing-color-inferred',differences:[],packDifference,listingDifferences,reason:'标题 / 品牌与前景配色推定同款；主体细节尚未核验',missing:[...new Set(['标题 / 配色推定，不能证明结构细节一致',...strict.missing,...wording])]};
   return {...strict,status:'pending',differences:[],packDifference,listingDifferences,reason:'图片商品主体尚未确认，保留待核对',missing:[...new Set([...strict.missing,...wording])]};
 }
 
@@ -221,7 +222,7 @@ export function titleKeywords(title) {
 
 export function bestSellerKeywords(items, topCount=3) {
   const groups=new Map();
-  for(const item of rankMatches(items)){
+  for(const item of rankMatches(items.filter(item=>item.status!=='inferred-match'))){
     if(salesDisplayNumber(item.sales)===null)continue;
     if(!groups.has(item.salesCohort))groups.set(item.salesCohort,[]);
     const group=groups.get(item.salesCohort);
