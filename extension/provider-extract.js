@@ -94,7 +94,7 @@
     const title=clean(card.querySelector('.title')?.textContent||anchor.getAttribute('title')||anchor.getAttribute('aria-label')||titleField?.value||anchor.querySelector('img')?.alt||card.querySelector('h2,h3,h4')?.textContent||text(anchor)||card.querySelector('img')?.alt).slice(0,2000);
     const salesFields=[...fields.filter(field=>/销量|sales|sold/i.test(field.label)),...labelledFields(card)];
     const market=fields.some(field=>/国家|站点|market|country/i.test(field.label)&&/美国|United States|^US$/i.test(field.value))?'us':pageMarket;
-    const value={...product,title,imageUrl,images:[imageUrl],rawText,productKeywords:productKeywords(card,fields,product.id),...visiblePrice(card,fields),salesFields,market};
+    const value={...product,title,imageUrl,images:[imageUrl],rawText,listingFields:fields,productKeywords:productKeywords(card,fields,product.id),...visiblePrice(card,fields),salesFields,market};
     const previous=seen.get(product.id);if(!previous||salesFields.length>previous.salesFields.length)seen.set(product.id,value);
   }
   result.products=[...seen.values()].slice(0,120);

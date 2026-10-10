@@ -11,6 +11,8 @@ const cache=new Map();
 let extractionQueue=Promise.resolve();
 const attentionDirectory=fileURLToPath(new URL('../.cache/subjects-product-attention-v1/',import.meta.url));
 const attentionCache=new Map();
+const layoutCache=new Map();
+function failedMetrics(metrics,rules){return rules.filter(([key,,required])=>metrics[key]<required).map(([key,label,required])=>({key,label,actual:metrics[key],required}));}
 
 export function prepareSubjects(){
   if(modelsPromise)return modelsPromise;
@@ -49,7 +51,9 @@ export function compareDescriptors(a,b){
   const colorSimilarity=a.colors.reduce((sum,value,i)=>sum+Math.sqrt(value*(b.colors[i]||0)),0);
   // This is a conservative visual matcher, not a calibrated identity probability.
   const matched=subjectSimilarity>=.94&&localSimilarity>=.92&&localCoverage>=.38&&colorSimilarity>=.88;
-  return {valid:true,subjectSimilarity,localSimilarity,localCoverage,colorSimilarity,matched,reason:matched?'主体整体特征、局部细节与颜色分布一致':'主体特征尚不足以自动确认外观同款'};
+  const metrics={subjectSimilarity,localSimilarity,localCoverage,colorSimilarity};
+  const failedChecks=failedMetrics(metrics,[['subjectSimilarity','整体特征对应不足',.94],['localSimilarity','局部细节对应不足',.92],['localCoverage','局部匹配覆盖不足',.38],['colorSimilarity','颜色分布对应不足',.88]]);
+  return {valid:true,...metrics,matched,failedChecks,reason:matched?'主体整体特征、局部细节与颜色分布一致':'主体特征尚不足以自动确认外观同款'};
 }
 
 async function extract(buffer){
@@ -125,7 +129,25 @@ export function compareFocusedDescriptors(a,b){
   // Separate conservative gates: weighted patch pooling is not the original CLS
   // score. Shared hands, logos or a few similar tokens cannot confirm a product.
   const matched=subjectSimilarity>=.96&&localSimilarity>=.94&&localCoverage>=.45&&colorSimilarity>=.90&&mutual.length>=12&&geometricRatio>=.75&&spread;
-  return {valid:true,matched,subjectSimilarity,localSimilarity,localCoverage,colorSimilarity,geometricRatio,localMatches:mutual.length,reason:matched?'商品关注区域的整体特征、多个区域细节、几何对应与颜色一致':'商品关注区域的结构与细节对应仍不足以确认同款'};
+  const metrics={subjectSimilarity,localSimilarity,localCoverage,colorSimilarity,geometricRatio,localMatches:mutual.length};
+  const failedChecks=failedMetrics(metrics,[['subjectSimilarity','加权整体特征对应不足',.96],['localSimilarity','商品局部细节对应不足',.94],['localCoverage','商品多区域覆盖不足',.45],['colorSimilarity','商品颜色分布对应不足',.90],['geometricRatio','商品几何对应不足',.75],['localMatches','商品局部对应数量不足',12]]);
+  if(!spread)failedChecks.push({key:'spread',label:'对应细节没有覆盖商品多个位置',actual:false,required:true});
+  return {valid:true,matched,...metrics,failedChecks,reason:matched?'商品关注区域的整体特征、多个区域细节、几何对应与颜色一致':'商品关注区域的结构与细节对应仍不足以确认同款'};
+}
+
+async function foregroundRegions(descriptor){
+  const key=createHash('sha256').update(descriptor.cropped).digest('hex');if(layoutCache.has(key))return layoutCache.get(key);
+  const {data,info}=await sharp(descriptor.cropped).ensureAlpha().raw().toBuffer({resolveWithObject:true}),size=info.width*info.height,seen=new Uint8Array(size),queue=new Int32Array(size),areas=[];
+  let foreground=0;for(let i=0;i<size;i++)if(data[i*4+3]>=160)foreground++;
+  for(let start=0;start<size;start++){
+    if(seen[start]||data[start*4+3]<160)continue;
+    let head=0,tail=1;queue[0]=start;seen[start]=1;
+    while(head<tail){const point=queue[head++],x=point%info.width,y=Math.floor(point/info.width);
+      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const xx=x+dx,yy=y+dy;if(xx<0||yy<0||xx>=info.width||yy>=info.height)continue;const next=yy*info.width+xx;if(!seen[next]&&data[next*4+3]>=160){seen[next]=1;queue[tail++]=next;}}
+    }
+    if(tail>=Math.max(100,foreground*.04))areas.push(tail);
+  }
+  const count=areas.length;if(layoutCache.size>=256)layoutCache.delete(layoutCache.keys().next().value);layoutCache.set(key,count);return count;
 }
 
 function attentionRecord(value){return value.focusMode===ATTENTION_REVISION&&value.attention?.revision===ATTENTION_REVISION&&['applied','preserved'].includes(value.attention.status)&&Number.isFinite(value.attention.reducedFraction)&&value.attention.reducedFraction>=0&&value.attention.reducedFraction<=.55&&typeof value.attentionWeights==='string'&&Buffer.from(value.attentionWeights,'base64').length===224*224&&Array.isArray(value.positions)&&value.positions.length===value.patches?.length&&value.positions.every(point=>Array.isArray(point)&&point.length===2&&point.every(n=>Number.isFinite(n)&&n>=0&&n<=1));}
@@ -175,7 +197,7 @@ export async function comparePreparedSubjects(baseA,baseB,options={}){
     if(focused&&result.matched)try{
       const {compareFocusedFeatures}=await import('./fast-features.mjs');
       const detailVerification=await compareFocusedFeatures(result.descriptor,b);
-      result={...result,matched:detailVerification.matched,detailVerification,reason:detailVerification.matched?'商品关注区域的特征、几何对应、颜色和局部图像内容一致':'商品关注区域的局部图像内容仍未核实，保留无法确认'};
+      result={...result,matched:detailVerification.matched,detailVerification,failedChecks:detailVerification.matched?result.failedChecks:[...(result.failedChecks||[]),{key:'local-content',label:'商品局部图像内容未通过',actual:detailVerification.reason,required:'商品几何、颜色和局部内容共同一致'}],reason:detailVerification.matched?'商品关注区域的特征、几何对应、颜色和局部图像内容一致':'商品关注区域的局部图像内容仍未核实，保留无法确认'};
     }catch(error){result={...result,matched:false,detailVerification:{matched:false,reason:error.message.slice(0,160)},reason:'商品关注区域的细节校验未完成，保留无法确认'};}
     delete result.descriptor;return result;
   };
@@ -188,7 +210,12 @@ export async function comparePreparedSubjects(baseA,baseB,options={}){
     if(result.matched||(result.subjectSimilarity||0)>(best.subjectSimilarity||0))best=result;
     if(result.matched)break;
   }
-  return {...best,attention,orientationAttempts:attempts,model:focused?'BiRefNet-lite + CLIPSeg/颜色关注 + DINOv2-small':'BiRefNet-lite + DINOv2-small'};
+  let layout={};
+  if(!best.matched&&baseA.valid&&baseB.valid)try{
+    const [referenceRegions,candidateRegions]=await Promise.all([foregroundRegions(baseA),foregroundRegions(baseB)]);
+    if(referenceRegions>1||candidateRegions>1)layout={foregroundRegions:{reference:referenceRegions,candidate:candidateRegions},layoutHint:'目前核对的是整组前景（参考 '+referenceRegions+' 个较大前景区域，候选 '+candidateRegions+' 个；不是商品件数）。多件拼图和摆放变化可能影响核对，尚未确认单件商品细节对应，不能据此认定不同款。'};
+  }catch{/* Optional layout diagnosis cannot replace or discard the image verdict. */}
+  return {...best,...layout,attention,orientationAttempts:attempts,model:focused?'BiRefNet-lite + CLIPSeg/颜色关注 + DINOv2-small':'BiRefNet-lite + DINOv2-small'};
 }
 async function orientedSubject(descriptor,mirror,rotation){
   const key=createHash('sha256').update('subject-orientation-v1:'+mirror+':'+rotation).update(descriptor.cropped).digest('hex');

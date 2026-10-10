@@ -160,14 +160,15 @@ export function rankMatches(items){return rankExact(items.filter(isProductMatch)
 
 export function localSpecChecks(referenceSpecs, candidateText) {
   const source = normalizeText(candidateText);
-  const conflicts=listingSpecs(candidateText).conflicts;
+  const listing=listingSpecs(candidateText),conflicts=listing.conflicts;
   return SPEC_KEYS.map(key => {
     const value = String(referenceSpecs?.[key] || '').trim();
     const labels={brand:'brand|品牌',model:'model|型号',material:'material|材质',dimensions:'dimensions|size|capacity|尺寸|容量',quantity:'quantity|number of pieces|pack quantity|数量|套装数量'};
     const escaped=normalizeText(value).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     const labelled=value && new RegExp('(?:'+labels[key]+')["\\s]*[:：]["\\s]*'+escaped+'(?![\\p{L}\\p{N}_/+\\-])','u').exec(source);
     const found = value && labelled && hasWholeValue(source,value)&&!conflicts.includes(key);
-    return { key, status:found?'same':'unknown', candidateValue:found?value:'', evidence:found?labelled[0]:'' };
+    const candidate=listing.specs[key]||'',quote=listing.evidence.find(item=>item.key===key)?.evidence||'';
+    return { key, status:found?'same':'unknown', candidateValue:found?value:candidate, evidence:found?labelled[0]:quote };
   });
 }
 

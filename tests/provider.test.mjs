@@ -9,6 +9,13 @@ const source=await readFile(new URL('../extension/provider-extract.js',import.me
 function extract(html,url='https://www.temaishuju.com/plugin/search-image?url=https%3A%2F%2Fimg.kwcdn.com%2Fa.jpg'){
   const {document}=parseHTML(html);return vm.runInNewContext(source,{document,location:new URL(url),URL,Date,Map,Set,String,Array,RegExp});
 }
+
+test('visible per-product brand/model/spec columns survive capture and normalization without taking neighboring product fields',()=>{
+  const html='<html><body><table><thead><tr><th>Product</th><th>Brand</th><th>Model</th><th>Material</th><th>Price</th></tr></thead><tbody><tr><td><a href="https://www.temu.com/goods.html?goods_id=601123456789001"><img src="https://img.kwcdn.com/a.jpg">Kitchen Gloves</a></td><td>Actual Brand</td><td>G22</td><td>latex</td><td>$13.13</td></tr><tr><td><a href="https://www.temu.com/goods.html?goods_id=601123456789002"><img src="https://img.kwcdn.com/b.jpg">Bottle</a></td><td>Other Brand</td><td>B77</td><td>silicone</td><td>$5.99</td></tr></tbody></table></body></html>';
+  const page=extract(html),item=normalizeProviderPage(page).products[0];
+  assert.equal(item.listingFields.find(field=>field.label==='Brand').value,'Actual Brand');assert.equal(item.listingFields.find(field=>field.label==='Model').value,'G22');assert.equal(item.priceText,'$13.13');
+  assert.equal(item.listingFields.some(field=>field.value==='Other Brand'),false);
+});
 test('provider navigation encodes image URLs without sending base64 or guessing region codes',()=>{
   const url=new URL(providerSearchURL({imageUrl:'https://img.kwcdn.com/a.jpg?x=1&y=2',productId:'601123456789001',title:'A & B'}));
   assert.equal(url.searchParams.get('url'),'https://img.kwcdn.com/a.jpg?x=1&y=2');assert.equal(url.searchParams.get('title'),'A & B');assert.equal(url.searchParams.has('region'),false);

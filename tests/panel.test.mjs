@@ -272,4 +272,19 @@ test('focused results explain preserved images and still show the original price
   assert.equal(phases.slice(start).find(body=>body.phase==='subject-review').referenceTitle,title);
 });
 
+test('captured title attributes and explicit brand/model fields stay visible independently of image confirmation',async()=>{
+  stagedFixture=true;fastMock=false;attentionMock=false;
+  const imageUrl='https://img.kwcdn.com/listing-fields-reference.jpg';
+  storageListeners[0]({'temuSelection:1':{newValue:{id:'selection-fields',windowId:1,tabId:1,imageUrl,productId:'601123456789999'}}},'session');await settle();
+  providerFixture={...providerFixture,queryImageUrl:imageUrl,products:[{...fixture.products[0],title:'22pcs (11Pairs) Random Color Thick Latex Kitchen Gloves',imageUrl:'https://img.kwcdn.com/listing-fields-candidate.jpg',priceText:'$13.13',listingFields:[{label:'Brand',value:'Actual Brand'},{label:'Model',value:'G22'}]}]};
+  const before=createdTabs.length;
+  document.getElementById('read-provider').click();await settle();
+  const card=document.getElementById('exact-results').firstElementChild;
+  assert.match(card.textContent,/22pcs \(11Pairs\)/);assert.match(card.textContent,/材质 Latex/);assert.match(card.textContent,/Actual Brand/);assert.match(card.textContent,/G22/);assert.match(card.textContent,/标题原文/);assert.match(card.textContent,/不参与同款判断/);assert.match(card.textContent,/\$13.13/);
+  const imageEvidence=[...card.querySelectorAll('details')].find(detail=>detail.querySelector('summary')?.textContent==='查看核对依据');
+  assert.doesNotMatch(imageEvidence.textContent,/上传产品的品牌|上传产品的型号/);
+  assert.equal(lastSaved.items[0].checks.find(check=>check.key==='model').candidateValue,'G22');
+  assert.equal(createdTabs.length,before);
+});
+
 test.after(()=>window.dispatchEvent(new window.Event('pagehide')));

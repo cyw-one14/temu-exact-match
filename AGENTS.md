@@ -19,3 +19,4 @@
 - 修改 shared 模块或扩展代码后运行 node scripts/package.mjs，并运行 python scripts/verify-package.py 校验；不将生成的 ZIP 加入源码提交。
 - 当前本机服务端口43187，启动/停止用 scripts/service-control.mjs，保持服务归属检查，不停止其他项目的进程。
 - 不根据测试用例通过宣称全品类准确率；真实梳子案例目前仍有多件参考/单件候选及细节对应不足的问题。
+- 红框手套样本仍是无法确认，见GLOVE-MATCH-DIAGNOSIS.md；未知品牌/规格不导致图像排除。保留标题或字段中能读到的页面描述，不将描述当已绑定SKU的实物规格。

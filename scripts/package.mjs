@@ -5,6 +5,7 @@ const root=new URL('../',import.meta.url);
 await copyFile(new URL('shared/core.mjs',root),new URL('extension/core.mjs',root));
 await copyFile(new URL('shared/provider.mjs',root),new URL('extension/provider.mjs',root));
 await copyFile(new URL('shared/prices.mjs',root),new URL('extension/prices.mjs',root));
+await copyFile(new URL('shared/listing.mjs',root),new URL('extension/listing.mjs',root));
 await mkdir(new URL('dist/',root),{recursive:true});
 const table=Array.from({length:256},(_,n)=>{for(let i=0;i<8;i++)n=(n&1)?(0xedb88320^(n>>>1)):(n>>>1);return n>>>0;});
 function crc32(buffer){let crc=0xffffffff;for(const value of buffer)crc=table[(crc^value)&255]^(crc>>>8);return (crc^0xffffffff)>>>0;}
