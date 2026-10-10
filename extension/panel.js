@@ -1,4 +1,4 @@
-import {SPEC_KEYS,parseSales,rankMatches,isProductMatch,keywordMetrics,bestSellerKeywords,listingSpecs,titleQuantity} from './core.mjs';
+import {SPEC_KEYS,parseSales,rankMatches,isProductMatch,keywordMetrics,bestSellerKeywords,listingKeywordEvidence,listingSpecs,titleQuantity} from './core.mjs';
 import {titleMatchEvidence} from './title-match.mjs';
 import {officialImage,providerSearchURL,normalizeProviderPage} from './provider.mjs';
 import {priceObservation,priceKindLabel} from './prices.mjs';
@@ -56,21 +56,17 @@ function renderKeywords(){
   $('keyword-section').hidden=!state.referenceImage&&!state.items.length;
   const container=$('keywords');container.replaceChildren();
   const groups=bestSellerKeywords(state.items);
-  $('keyword-caption').textContent='取销量前 3 款 · 按销量口径分组';
+  $('keyword-caption').textContent='每组 Top10 · 页面显示销量';
   if(!groups.length)container.append(node('p','hint','工具自动判断同款并读取销量后，再收集畅销商品的关键词。'));
   for(const group of groups){
     const first=group.products[0],section=node('div','seller-keywords');
     section.append(node('p','hint',(first.salesSource==='provider-visible'?'特卖数据图搜':'TEMU 页面')+' · '+(first.market==='us'?'美国站':'国家站未核实')+' · '+periodText(first.sales)+' · 已确认且有销量 '+group.eligibleProducts+' 款，取前 '+group.products.length+' 款'));
     if(group.products.some(item=>!item.sales.exact))section.append(node('p','hint','包含约数 / 销量下限，按页面显示数字排列，无法确认精确销量名次。'));
-    if(!group.keywords.length)section.append(node('p','hint','这些商品暂无可读取的商品关键词或标题词。'));
-    for(const word of group.keywords){
-      const entry=node('div','keyword-source');entry.append(node('strong','',word.query));
-      for(const source of word.sources){
-        const link=node('a','','第 '+source.rank+' 款 · '+source.sales.raw+' · '+(source.matchStatus==='rule-match'?'主体颜色补充同款 · ':source.matchStatus==='visual-match'?'外观同款 · ':'')+(source.kind==='product-keyword'?'商品页面关键词':'商品标题原词'));
-        link.href=source.url;link.target='_blank';link.rel='noopener noreferrer';link.title=source.title;entry.append(link);
-      }
-      const use=node('button','quiet','用此词检索');use.type='button';use.disabled=busy;
-      use.addEventListener('click',()=>{addKeyword(word.query);renderKeywords();save();});entry.append(use);section.append(entry);
+    for(const product of group.products){
+      const entry=node('article','seller-entry');entry.dataset.productId=product.id;
+      const link=node('a','product-name','第 '+product.salesRank+' 款 · '+product.title);link.href=product.url;link.target='_blank';link.rel='noopener noreferrer';entry.append(link);
+      entry.append(node('p','hint',(product.price?.raw||product.priceText||'价格未读取')+' · '+product.sales.raw+' · '+(product.status==='rule-match'?'主体颜色补充同款':'主体一致同款')));
+      entry.append(keywordEvidenceBlock(product.keywordEvidence,true));section.append(entry);
     }
     container.append(section);
   }
@@ -90,6 +86,22 @@ function renderKeywords(){
       renderKeywords();save();
     });retrieval.append(button);
   }
+}
+function keywordEvidenceBlock(words,retrieval=false){
+  const block=node('div','link-keywords');
+  if(!words.length)block.append(node('p','hint','此链接未展示商品关键词，标题也无可摘录原词。'));
+  for(const word of words){
+    const entry=node('div','keyword-source');entry.append(node('strong','',word.query));
+    entry.append(node('p','hint',word.kind==='product-keyword'?'商品页面关键词':'商品标题原词'));
+    const evidence=node('details');evidence.append(node('summary','','查看原文与采集来源'));
+    evidence.append(node('p','product-note','原文证据：'+word.evidence));
+    if(word.pageUrl){const link=node('a','','关键词采集页面 ↗');link.href=word.pageUrl;link.target='_blank';link.rel='noopener noreferrer';evidence.append(link);}
+    const captured=new Date(word.capturedAt||'');evidence.append(node('p','product-note','采集时间：'+(Number.isNaN(captured.getTime())?'未记录':captured.toLocaleString('zh-CN'))));
+    entry.append(evidence);
+    if(retrieval){const use=node('button','quiet','用此词检索');use.type='button';use.disabled=busy;use.addEventListener('click',()=>{addKeyword(word.query);renderKeywords();save();});entry.append(use);}
+    block.append(entry);
+  }
+  return block;
 }
 function safeImage(raw){if(typeof raw==='string'&&raw.length<500000&&/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(raw))return raw;try{const url=new URL(raw);return url.protocol==='https:'&&!url.username&&!url.password?url.href:'';}catch{return '';}}
 function periodText(sales){return sales?.periodLabel||({'30d':'近 30 天','7d':'近 7 天','1d':'日销量',total:'累计销量'})[sales?.period]||'销量统计周期未展示';}
@@ -140,6 +152,13 @@ function card(item,lead=false){
   }
   listingDetails.append(node('p','hint','店铺名不当作品牌，商品 ID 不当作型号；图片颜色和摆放数量不替代页面规格。'));
   article.append(listingDetails);
+  if(isProductMatch(item)&&item.status!=='inferred-match'){
+    const words=listingKeywordEvidence(item),keywordDetails=node('details','product-keywords');
+    keywordDetails.append(node('summary','','此链接关键词 · '+words.length+' 条'));
+    keywordDetails.append(keywordEvidenceBlock(words));
+    if(!item.sales||item.sales.kind==='unknown')keywordDetails.append(node('p','hint','销量未知，仅展示此链接的原词来源，未进入销量 Top10。'));
+    article.append(keywordDetails);
+  }
   const details=node('details');details.append(node('summary','',item.status==='different'?'查看差异':'查看核对依据'));
   if(item.titleEvidence)details.append(node('p','hint',item.titleEvidence.reason+' · 标题规则分数 '+item.titleEvidence.score.toFixed(3)+'（不是同款概率）'));
   if(item.listingColorMatch?.colorEvidence?.valid)details.append(node('p','hint','主体关注区域颜色 '+item.listingColorMatch.colorEvidence.similarity.toFixed(3)+' · '+item.listingColorMatch.reason+'（特征指标，不是同款概率）'));
@@ -262,12 +281,19 @@ async function startProvider(){
   $('provider-status').textContent=imageUrl?'已提交网页图片，正在等待图搜页面结果。需要登录或验证时请在该页面完成。':'请在打开的图搜页上传同一张本地图片，结果出现后点击“读取 / 继续同步图搜结果”。';
   await save();watchProvider();
 }
+function providerReviewKey(product){
+  const listing=listingMetadata({title:product.title,text:product.detailsText||product.rawText||'',structuredSpecs:product.structuredSpecs,listingFields:product.listingFields});
+  const fields=Object.entries(listing.fields).map(([key,field])=>[key,field.value,field.status,field.evidence.map(evidence=>evidence.value)]);
+  // Visible sales, price and keyword text are not image-identity inputs.
+  return JSON.stringify([product.imageUrl,product.title,product.verifiedImages||[],product.variantAmbiguous||false,fields]);
+}
 function mergeProvider(page){
   for(const product of page.products){
+    const reviewKey=providerReviewKey(product);
     const existing=state.items.find(item=>item.id===product.id&&item.salesSource==='provider-visible');
     if(existing){
-      const unchanged=existing.imageUrl===product.imageUrl&&(existing.providerTitle||existing.title)===product.title&&existing.rawText===product.rawText;
-      const retained=unchanged?{status:existing.status,matchSource:existing.matchSource,evidence:existing.evidence,missing:existing.missing,differences:existing.differences,detailsText:existing.detailsText,variantAmbiguous:existing.variantAmbiguous,title:existing.title,priceText:existing.priceText,price:existing.price,priceObservations:existing.priceObservations,productKeywords:[...(existing.productKeywords||[]),...(product.productKeywords||[])]}:{};
+      const unchanged=existing.providerReviewKey?existing.providerReviewKey===reviewKey:existing.imageUrl===product.imageUrl&&(existing.providerTitle||existing.title)===product.title&&existing.rawText===product.rawText;
+      const retained=unchanged?{status:existing.status,matchSource:existing.matchSource,evidence:existing.evidence,missing:existing.missing,differences:existing.differences,detailsText:existing.detailsText,variantAmbiguous:existing.variantAmbiguous,title:existing.title,priceText:existing.priceText,price:existing.price,priceObservations:existing.priceObservations}:{};
       if(unchanged&&existing.detailSourceUrl){retained.structuredSpecs=existing.structuredSpecs;retained.listingFields=existing.listingFields;retained.verifiedImages=existing.verifiedImages;}
       // Late-rendered prices refresh independently of image confirmation.
       const previousPrice=existing.price;
@@ -276,8 +302,8 @@ function mergeProvider(page){
         if(previousPrice?.raw&&previousPrice.raw!==product.price.raw)existing.priceObservations=[...(existing.priceObservations||[]),previousPrice].slice(-12);
         existing.priceText=product.priceText;existing.price=product.price;
       }else if(previousPrice?.raw){existing.priceText=previousPrice.raw;existing.price=previousPrice;}
-      existing.providerTitle=product.title;if(!unchanged){delete existing.autoAttempt;delete existing.pageImagePriority;}
-    }else state.items.push({...product,providerTitle:product.title});
+      existing.providerTitle=product.title;existing.providerReviewKey=reviewKey;if(!unchanged){delete existing.autoAttempt;delete existing.pageImagePriority;}
+    }else state.items.push({...product,providerTitle:product.title,providerReviewKey:reviewKey});
   }
   // Unassociated page-wide words cannot be attributed to any best-selling product.
   if(!state.pages.some(item=>item.url===page.pageUrl))state.pages.push({url:page.pageUrl,capturedAt:page.capturedAt,source:'provider-visible',query:'图片检索'});
@@ -315,9 +341,9 @@ async function readProvider(manual=false,{priceOnly=false}={}){
       }
       render();await save();$('provider-status').textContent='核对期间已同步 '+refreshed+' 个商品的页面价格。';if(manual)watchProvider();return;
     }
-    const fingerprint=JSON.stringify([data.products.map(item=>[item.id,item.imageUrl,item.title,item.rawText,item.priceText,item.price?.currency,item.sales,item.market,item.productKeywords,item.listingFields,item.structuredSpecs,item.verifiedImages]),data.keywords.map(item=>[item.query,item.metrics])]);
+    const fingerprint=JSON.stringify([data.products.map(item=>[item.id,item.imageUrl,item.title,item.rawText,item.priceText,item.price?.currency,item.sales,item.market,item.productKeywords?.map(({capturedAt,...word})=>word),item.listingFields,item.structuredSpecs,item.verifiedImages]),data.keywords.map(item=>[item.query,item.metrics])]);
     if(fingerprint!==job.lastFingerprint){job.lastFingerprint=fingerprint;mergeProvider(data);await save();}
-    $('provider-status').textContent='本页已读取 '+data.products.length+' 个候选商品。工具自动核对后，按销量筛选前 3 款并收集商品关键词。';
+    $('provider-status').textContent='本页已读取 '+data.products.length+' 个候选商品。工具自动核对后，每个销量口径组取 Top10，逐链接展示商品关键词。';
     if(manual){
       if(page.queryImageUrl){job.expectedImageUrl=page.queryImageUrl;job.manualUpload=false;watchProvider();}
       else{job.manualUpload=true;stopProviderWatch();$('provider-status').textContent+=' 页面未提供本次图片关联，后续结果需手动读取。';}
@@ -558,7 +584,7 @@ $('settings').addEventListener('click',()=>chrome.runtime.openOptionsPage());
 $('result-sort').addEventListener('change',render);
 $('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('模型正在加载，完成后可以识别图片。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.2.6',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'only-loaded-pages',matchingPolicy:state.matchingPolicy,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.2.7',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'only-loaded-pages',matchingPolicy:state.matchingPolicy,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,keywordEvidence:isProductMatch(item)&&item.status!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });

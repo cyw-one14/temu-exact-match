@@ -213,7 +213,7 @@ export function salesDisplayNumber(sales) {
 
 // Keep literal title clauses. No model completion, translation or recombination.
 export function titleKeywords(title) {
-  const text=String(title||'').replace(/\s+/g,' ').trim();
+  const text=String(title||'').trim();
   if(!text||/^TEMU 商品 \d+$/.test(text))return [];
   return [...new Set(text.split(/[,，;；|\n]+/).map(value=>value.trim()).filter(value=>{
     if(value.length<4||value.length>180)return false;
@@ -221,7 +221,20 @@ export function titleKeywords(title) {
   }))].slice(0,3);
 }
 
-export function bestSellerKeywords(items, topCount=3) {
+// Every displayed phrase must retain its own product-bound, literal source.
+export function listingKeywordEvidence(product) {
+  const explicit=(product.productKeywords||[]).filter(word=>typeof word.query==='string'&&word.query.trim()&&word.query.trim().length<=180&&product.id&&word.productId===product.id&&typeof word.evidence==='string'&&word.evidence.includes(word.query.trim())&&sourcePageUrl(word.pageUrl));
+  const candidates=explicit.length?explicit.map(word=>({...word,query:word.query.trim(),kind:'product-keyword'})):titleKeywords(product.title).map(query=>({query,kind:'title-phrase',evidence:product.title,pageUrl:product.sourceUrl||product.url,capturedAt:product.capturedAt}));
+  const seen=new Set();
+  return candidates.filter(word=>{const key=JSON.stringify([word.query,word.kind,word.evidence,word.pageUrl]);if(seen.has(key))return false;seen.add(key);return true;}).map(word=>({query:word.query,productId:product.id,url:product.url,title:product.title,matchStatus:product.status,sales:product.sales,market:product.market,salesSource:product.salesSource||'temu-visible',kind:word.kind,evidence:word.evidence,pageUrl:word.pageUrl,capturedAt:word.capturedAt||product.capturedAt||null}));
+}
+
+function sourcePageUrl(value){
+  try{const url=new URL(value);return ['https:','http:'].includes(url.protocol)&&!url.username&&!url.password;}catch{return false;}
+}
+
+export function bestSellerKeywords(items, topCount=10) {
+  const limit=Number.isFinite(topCount)?Math.max(1,Math.min(10,Math.floor(topCount))):10;
   const groups=new Map();
   for(const item of rankMatches(items.filter(item=>item.status!=='inferred-match'))){
     if(salesDisplayNumber(item.sales)===null)continue;
@@ -230,18 +243,16 @@ export function bestSellerKeywords(items, topCount=3) {
     if(!group.some(value=>value.id===item.id))group.push(item);
   }
   return [...groups].map(([cohort,all])=>{
-    const products=all.slice(0,Math.max(1,Math.min(10,topCount))),words=new Map();
-    products.forEach((product,index)=>{
-      const explicit=(product.productKeywords||[]).filter(word=>word.query&&word.productId===product.id&&word.evidence&&word.pageUrl);
-      const candidates=explicit.length?explicit.map(word=>({...word,kind:'product-keyword'})):titleKeywords(product.title).map(query=>({query,kind:'title-phrase',evidence:product.title,pageUrl:product.sourceUrl||product.url}));
-      for(const word of candidates){
+    const products=all.slice(0,limit).map((product,index)=>({...product,salesRank:index+1,keywordEvidence:listingKeywordEvidence(product).map(word=>({...word,rank:index+1}))})),words=new Map();
+    products.forEach(product=>{
+      for(const word of product.keywordEvidence){
         const identity=normalizeText(word.query);if(!identity)continue;
         if(!words.has(identity))words.set(identity,{query:word.query,sources:[]});
         const keyword=words.get(identity);
-        if(!keyword.sources.some(value=>value.productId===product.id))keyword.sources.push({productId:product.id,url:product.url,title:product.title,matchStatus:product.status,rank:index+1,sales:product.sales,market:product.market,salesSource:product.salesSource||'temu-visible',kind:word.kind,evidence:word.evidence,pageUrl:word.pageUrl,capturedAt:product.capturedAt});
+        if(!keyword.sources.some(value=>value.productId===product.id))keyword.sources.push({...word});
       }
     });
-    return {cohort,eligibleProducts:all.length,products,keywords:[...words.values()]};
+    return {cohort,topCount:limit,eligibleProducts:all.length,products,keywords:[...words.values()]};
   });
 }
 

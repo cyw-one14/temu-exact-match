@@ -349,4 +349,35 @@ test('dissimilar titles still become matches when their subjects match, with no 
   assert.equal(lastSaved.items[0].status,'visual-match');assert.equal(lastSaved.items[0].titleEvidence.group,'dissimilar');assert.match(document.getElementById('exact-results').textContent,/\$3.75/);assert.equal(createdTabs.length,before);
 });
 
+test('Top10 renders ranked product links and per-link evidence, updates without rechecking images and exports all products',async()=>{
+  stagedFixture=false;fastMock=false;attentionMock=false;instanceMock=false;inferredMock=false;batchSize=12;
+  const imageUrl='https://img.kwcdn.com/top10-reference.jpg';
+  referenceFixture={...fixture,detail:{...fixture.products[0],id:'601123456789999',title:'Top10 fixture reference',detailsText:specText,rawText:specText,variantAmbiguous:false}};
+  storageListeners[0]({'temuSelection:1':{newValue:{id:'selection-top10',windowId:1,tabId:1,imageUrl,productId:'601123456789999'}}},'session');await settle();
+  const products=Array.from({length:12},(_,i)=>({...fixture.products[0],id:String(601123456789100+i),url:'https://www.temu.com/goods.html?goods_id='+String(601123456789100+i),title:'Top10 original seller '+i,salesFields:[{label:'已售出',value:String(100-i)}]}));
+  products[0].productKeywords=[{productId:products[0].id,query:'Exact seller phrase',evidence:'关键词：Exact seller phrase',pageUrl:providerFixture.pageUrl,capturedAt:'2026-10-10T01:00:00Z'},{productId:products[1].id,query:'Other seller phrase',evidence:'Other seller phrase',pageUrl:providerFixture.pageUrl}];
+  products.push({...products[11],id:'601123456789200',url:'https://www.temu.com/goods.html?goods_id=601123456789200',title:'Unknown sales original words',salesFields:[]});
+  providerFixture={...providerFixture,queryImageUrl:imageUrl,products,keywords:[]};
+  const beforeTabs=createdTabs.length;
+  document.getElementById('read-provider').click();await settle();await settle();
+  const entries=[...document.querySelectorAll('#keywords .seller-entry')];assert.equal(entries.length,10);
+  assert.equal(entries[0].dataset.productId,products[0].id);assert.equal(entries[9].dataset.productId,products[9].id);
+  assert.match(entries[0].textContent,/Exact seller phrase/);assert.match(entries[0].textContent,/商品页面关键词/);assert.match(entries[0].textContent,/原文证据/);assert.doesNotMatch(entries[0].textContent,/Other seller phrase/);assert.equal(entries[0].querySelector('a').href,products[0].url);
+  assert.match(entries[1].textContent,/商品标题原词/);assert.match(document.getElementById('keyword-caption').textContent,/Top10/);
+  const cards=[...document.querySelectorAll('#exact-results .product')];assert.equal(cards.length,13);assert.ok(cards.every(card=>card.querySelector('.product-keywords')));
+  assert.match(cards.find(card=>card.textContent.includes('Unknown sales original words')).querySelector('.product-keywords').textContent,/销量未知/);
+  const beforeRequests=comparisonRequests;
+  providerFixture={...providerFixture,capturedAt:'2026-10-10T03:00:00Z',products:products.map((p,i)=>i===11?{...p,rawText:p.title+' $5.99 已售出：999 关键词：Late seller phrase',salesFields:[{label:'已售出',value:'999'}],productKeywords:[{productId:p.id,query:'Late seller phrase',evidence:'关键词：Late seller phrase',pageUrl:providerFixture.pageUrl}]}:p)};
+  document.getElementById('read-provider').click();await settle();
+  const leader=document.querySelector('#keywords .seller-entry');assert.equal(leader.dataset.productId,products[11].id);assert.match(leader.textContent,/Late seller phrase/);assert.match(leader.textContent,/999/);assert.equal(comparisonRequests,beforeRequests);
+  const leaderSaved=lastSaved.items.find(item=>item.id===products[11].id);assert.equal(leaderSaved.productKeywords.length,1);
+  providerFixture={...providerFixture,capturedAt:'2026-10-10T04:00:00Z'};document.getElementById('read-provider').click();await settle();assert.equal(comparisonRequests,beforeRequests);assert.equal(leaderSaved.productKeywords.length,1);
+  let exportedBlob;const oldCreate=URL.createObjectURL,oldRevoke=URL.revokeObjectURL;
+  URL.createObjectURL=blob=>{exportedBlob=blob;return 'blob:fixture';};URL.revokeObjectURL=()=>{};
+  try{document.getElementById('export').click();const data=JSON.parse(await exportedBlob.text());assert.equal(data.version,'0.2.7');assert.equal(data.keywordTopCount,10);assert.equal(data.keywords[0].products.length,10);assert.equal(data.products.length,13);assert.equal(data.keywords[0].products[0].keywordEvidence[0].query,'Late seller phrase');assert.equal(data.products.find(p=>p.id===products[11].id).keywordEvidence[0].capturedAt,'2026-10-10T03:00:00Z');}finally{URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;}
+  providerFixture={...providerFixture,products:providerFixture.products.map(p=>({...p,productKeywords:[]}))};document.getElementById('read-provider').click();await settle();assert.equal(comparisonRequests,beforeRequests);assert.doesNotMatch(document.querySelector('#keywords .seller-entry').textContent,/Late seller phrase/);
+  providerFixture={...providerFixture,products:providerFixture.products.map((p,i)=>i===0?{...p,imageUrl:'https://img.kwcdn.com/top10-changed-product.jpg',title:'Changed original product title'}:p)};document.getElementById('read-provider').click();await settle();assert.ok(comparisonRequests>beforeRequests,'changed product images and titles must still be reviewed');assert.equal(lastSaved.items.find(p=>p.id===products[0].id).title,'Changed original product title');
+  assert.equal(createdTabs.length,beforeTabs);
+});
+
 test.after(()=>window.dispatchEvent(new window.Event('pagehide')));

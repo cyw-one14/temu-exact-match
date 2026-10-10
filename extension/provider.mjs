@@ -46,7 +46,7 @@ export function normalizeProviderPage(page,preferredPeriod='unknown'){
     const period=preferredPeriod;
     const sales=observations.find(item=>item.period===period)||{...parseSales(''),period:period||'unknown',periodLabel:period||'',source:'provider-visible'};
     const market=value.market==='us'?'us':'unverified';
-    products.push({...value,...identity,title:String(value.title||'TEMU 商品 '+identity.id).slice(0,2000),market,price:priceObservation(value.priceText,{market,currency:value.priceCurrency,source:'provider-visible',sourceUrl:page.pageUrl,capturedAt}),sales,salesObservations:observations,salesSource:'provider-visible',source:'provider-visible',sourceUrl:page.pageUrl,capturedAt,status:'pending',matchSource:null,queries:[],evidence:['来源：特卖数据图搜页面展示的候选'],missing:['尚未完成商品主体自动比对']});
+    products.push({...value,...identity,productKeywords:(value.productKeywords||[]).map(word=>({...word,capturedAt:word.capturedAt||capturedAt})),title:String(value.title||'TEMU 商品 '+identity.id).slice(0,2000),market,price:priceObservation(value.priceText,{market,currency:value.priceCurrency,source:'provider-visible',sourceUrl:page.pageUrl,capturedAt}),sales,salesObservations:observations,salesSource:'provider-visible',source:'provider-visible',sourceUrl:page.pageUrl,capturedAt,status:'pending',matchSource:null,queries:[],evidence:['来源：特卖数据图搜页面展示的候选'],missing:['尚未完成商品主体自动比对']});
   }
   const keywords=(page.keywords||[]).filter(item=>typeof item.query==='string'&&item.query.trim()).slice(0,50).map(item=>({query:item.query.trim().slice(0,180),source:'provider-visible',label:'第三方页面关键词',metrics:(item.metrics||[]).slice(0,8),pageUrl:page.pageUrl,capturedAt}));
   return {...page,products,keywords,capturedAt};

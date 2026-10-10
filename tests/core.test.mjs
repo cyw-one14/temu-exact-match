@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseSales,decideExact,decideProductMatch,localSpecChecks,rankExact,temuProductUrl,keywordMetrics,bestSellerKeywords,listingSpecs,specConflict} from '../shared/core.mjs';
+import {parseSales,decideExact,decideProductMatch,localSpecChecks,rankExact,temuProductUrl,keywordMetrics,bestSellerKeywords,listingKeywordEvidence,listingSpecs,specConflict} from '../shared/core.mjs';
 const specs={brand:'Acme',model:'A12',material:'silicone',dimensions:'500ml',quantity:'1pc'};
 const source='Brand: Acme; Model: A12; Material: silicone; Capacity: 500ml; Quantity: 1pc';
 const comparison={visual:'same_photo',differences:[],checks:localSpecChecks(specs,source)};
@@ -55,11 +55,11 @@ test('keywords are validated by confirmed match counts, not fabricated search vo
   assert.equal(metrics[0].query,'blue bottle');assert.equal(metrics[0].exactCount,1);
 });
 
-test('recommended keywords come only from the top three confirmed sellers, with literal product evidence',()=>{
+test('an explicit top-three limit retains literal product evidence and excludes lower sellers',()=>{
   const item=(id,sales,status='exact')=>({id,title:'Literal '+id+' gloves, Waterproof cleaning gloves',status,market:'us',url:'https://www.temu.com/goods.html?goods_id='+id,sales:parseSales(sales+' sold')});
   const products=[item('low',10),item('second',900),item('leader',1000),item('third',500),item('pending',999999,'pending'),item('missing',''),item('different',888888,'different')];
   products[2].productKeywords=[{query:'Seller actual phrase',productId:'leader',pageUrl:products[2].url,evidence:'关键词：Seller actual phrase'},{query:'Unrelated word',productId:'other',pageUrl:products[2].url,evidence:'irrelevant'}];
-  const [group]=bestSellerKeywords(products);
+  const [group]=bestSellerKeywords(products,3);
   assert.deepEqual(group.products.map(value=>value.id),['leader','second','third']);
   assert.equal(group.keywords[0].query,'Seller actual phrase');
   assert.equal(group.keywords[0].sources[0].rank,1);
@@ -117,4 +117,32 @@ test('seller keyword rankings separate markets and periods and retain approximat
   assert.equal(groups.length,3);assert.equal(groups[0].products[0].id,'approx');assert.equal(groups[0].keywords[0].sources[0].sales.kind,'approximate');
   assert.deepEqual(bestSellerKeywords([{status:'exact',title:'No sales title',sales:parseSales('')}]),[]);
   assert.deepEqual(bestSellerKeywords([{status:'pending',title:'No match title',sales:parseSales('100 sold')}]),[]);
+});
+
+test('default Top10 retains no-keyword sellers, stable ties, zero and sales uncertainty within separate cohorts',()=>{
+  const item=(id,count,extra={})=>({id,url:'https://www.temu.com/goods.html?goods_id='+id,title:'Literal seller '+id,status:'visual-match',market:'us',sales:parseSales(count+' sold'),...extra});
+  const items=Array.from({length:12},(_,i)=>item('seller-'+i,100-i));
+  items[0].title='';items[1].sales=parseSales('99+ sold');items[2].sales=parseSales('0.099K sold');items[3].status='rule-match';
+  items.push(item('unknown',''),item('pending',999999,{status:'pending'}),item('legacy',999999,{status:'inferred-match'}),item('different',999999,{status:'different'}),item('zero',0),items[4],item('provider',999,{salesSource:'provider-visible'}),item('month',999,{sales:{...parseSales('999 sold'),period:'month'}}),item('market',999,{market:'unverified'}));
+  const groups=bestSellerKeywords(items),group=groups[0];
+  assert.equal(groups.length,4);assert.equal(group.topCount,10);assert.equal(group.eligibleProducts,13);
+  assert.deepEqual(group.products.map(x=>x.id),Array.from({length:10},(_,i)=>'seller-'+i));
+  assert.deepEqual(group.products.map(x=>x.salesRank),[1,2,3,4,5,6,7,8,9,10]);
+  assert.deepEqual(group.products[0].keywordEvidence,[]);assert.equal(group.products[1].sales.kind,'lower-bound');assert.equal(group.products[2].sales.kind,'approximate');
+  assert.equal(group.products[3].keywordEvidence[0].matchStatus,'rule-match');
+  assert.equal(group.keywords.some(word=>word.query.includes('seller-10')),false);
+  assert.equal(bestSellerKeywords([item('zero',0)])[0].products[0].sales.displayValue,0);
+  assert.equal(bestSellerKeywords(items,NaN)[0].products.length,10);
+});
+
+test('per-link keywords reject mismatched IDs, invented phrases and unsafe sources while preserving literal evidence and capture time',()=>{
+  const product={id:'601123456789001',title:'Original  title words, Original second clause\nThird title phrase',url:'https://www.temu.com/goods.html?goods_id=601123456789001',sourceUrl:'https://www.temaishuju.com/plugin/search-image',capturedAt:'2026-10-10T02:00:00Z',status:'rule-match',sales:parseSales('')};
+  const word={query:'Seller Exact Words',productId:product.id,pageUrl:product.sourceUrl,evidence:'关键词：Seller Exact Words',capturedAt:'2026-10-10T01:00:00Z'};
+  product.productKeywords=[word,{...word},{...word,productId:'other'},{...word,query:'Invented Words'},{...word,query:'Unsafe words',evidence:'Unsafe words',pageUrl:'javascript:alert(1)'}];
+  const evidence=listingKeywordEvidence(product);assert.equal(evidence.length,1);assert.equal(evidence[0].query,word.query);assert.equal(evidence[0].capturedAt,word.capturedAt);assert.equal(evidence[0].matchStatus,'rule-match');assert.equal(evidence[0].pageUrl,word.pageUrl);
+  product.productKeywords=[{...word,query:'Invented Words'}];
+  const fallback=listingKeywordEvidence(product);assert.deepEqual(fallback.map(x=>x.query),['Original  title words','Original second clause','Third title phrase']);
+  assert.ok(fallback.every(x=>x.kind==='title-phrase'&&x.evidence.includes(x.query)&&x.capturedAt===product.capturedAt));
+  assert.deepEqual(bestSellerKeywords([product]),[],'unknown sales still have per-link evidence but cannot enter Top10');
+  assert.deepEqual(listingKeywordEvidence({...product,title:'TEMU 商品 601123456789001'}),[]);
 });
