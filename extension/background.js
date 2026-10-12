@@ -1,17 +1,30 @@
 import {officialImage} from './provider.mjs';
 
 chrome.runtime.onInstalled.addListener(()=>chrome.sidePanel.setPanelBehavior({openPanelOnActionClick:true}));
-chrome.action.onClicked.addListener(tab=>chrome.sidePanel.open({windowId:tab.windowId}).catch(()=>{}));
+chrome.action.onClicked.addListener(tab=>openAssistant(tab.windowId));
+
+// Invoke before any await so Chrome can use the original click gesture. If the
+// browser refuses its sidebar, the same extension panel can run in a normal tab.
+function openSidePanel(windowId){try{return Promise.resolve(chrome.sidePanel.open({windowId}));}catch(error){return Promise.reject(error);}}
+function openPanelTab(windowId){return chrome.tabs.create({url:chrome.runtime.getURL('panel.html'),windowId,active:true});}
+async function openAssistant(windowId){try{await openSidePanel(windowId);}catch{try{await openPanelTab(windowId);}catch{/* The browser may have closed the clicked window. */}}}
 chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
   if(sender.id!==chrome.runtime.id)return false;
   if(message.type==='image-picked'){
     if(!sender.tab||!/^https:\/\/www\.temu\.com\//.test(sender.tab.url||'')||!officialImage(message.selection?.imageUrl)){sendResponse({ok:false,error:'请选择正常 TEMU 页面上的商品图片'});return false;}
     // Call before any await so the content-script click keeps its user gesture.
-    const opening=chrome.sidePanel.open({windowId:sender.tab.windowId});
-    opening.then(async()=>{
+    const opening=openSidePanel(sender.tab.windowId);
+    // Settle a rejected open immediately; selection storage remains independent
+    // and precedes creation of the fallback panel, which reads this same key.
+    opening.then(()=>null,error=>error).then(async openError=>{
       const selection={id:crypto.randomUUID(),windowId:sender.tab.windowId,tabId:sender.tab.id,imageUrl:officialImage(message.selection.imageUrl),productId:/^\d{6,25}$/.test(message.selection.productId||'')?message.selection.productId:'',title:String(message.selection.title||'').slice(0,400),titleSource:String(message.selection.titleSource||'').slice(0,60),productIdSource:String(message.selection.productIdSource||'').slice(0,60),pageUrl:sender.tab.url};
-      await chrome.storage.session.set({['temuSelection:'+sender.tab.windowId]:selection});sendResponse({ok:true});
-    }).catch(error=>sendResponse({ok:false,error:'打开侧栏失败：'+error.message}));
+      try{await chrome.storage.session.set({['temuSelection:'+sender.tab.windowId]:selection});}
+      catch{sendResponse({ok:false,error:'所选图片无法保存到浏览器，请重新加载扩展并刷新 TEMU 页面后重试'});return;}
+      if(openError){
+        try{await openPanelTab(sender.tab.windowId);sendResponse({ok:true,opened:'tab'});}
+        catch{sendResponse({ok:false,error:'浏览器未能打开侧栏或助手标签页，请点击工具栏插件图标，或重新加载扩展后刷新 TEMU 页面'});}
+      }else sendResponse({ok:true,opened:'side-panel'});
+    }).catch(()=>sendResponse({ok:false,error:'同款助手启动失败，请重新加载扩展并刷新 TEMU 页面后重试'}));
     return true;
   }
   if(message.type==='collect'){

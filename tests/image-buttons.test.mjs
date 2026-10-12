@@ -6,15 +6,26 @@ import {parseHTML} from 'linkedom';
 const source=await readFile(new URL('../extension/image-buttons.js',import.meta.url),'utf8');
 const declarations=await readFile(new URL('../extension/structured-fields.js',import.meta.url),'utf8');
 
-async function mount(html,{url='https://www.temu.com/goods.html?goods_id=601123456789001',front=''}={}){
+async function mount(html,{url='https://www.temu.com/goods.html?goods_id=601123456789001',front='',rect=null,send=null}={}){
   const {document}=parseHTML(html);let shadow;const original=document.createElement.bind(document),frames=[],messages=[];
   document.createElement=(...args)=>{const node=original(...args),attach=node.attachShadow.bind(node);node.attachShadow=options=>{shadow=attach(options);return shadow;};return node;};
-  for(const img of document.querySelectorAll('img')){const size=img.getAttribute('data-small')?100:600;img.getBoundingClientRect=()=>({left:20,top:30,right:20+size,bottom:30+size,width:size,height:size});img.getClientRects=()=>[img.getBoundingClientRect()];}
+  for(const img of document.querySelectorAll('img')){const size=img.getAttribute('data-small')?100:600;img.getBoundingClientRect=()=>rect||({left:20,top:30,right:20+size,bottom:30+size,width:size,height:size});img.getClientRects=()=>[img.getBoundingClientRect()];}
   if(front)document.elementsFromPoint=()=>[document.getElementById(front),document.querySelector('main')];
-  const context=vm.createContext({document,location:new URL(url),URL,Map,Set,String,innerWidth:1000,innerHeight:800,requestAnimationFrame:fn=>frames.push(fn),MutationObserver:class{observe(){}},getComputedStyle:node=>({display:node.style.display||'block',visibility:node.style.visibility||'visible',opacity:node.style.opacity||'1'}),addEventListener:()=>{},setTimeout:()=>0,chrome:{runtime:{sendMessage:async message=>{messages.push(message);return{ok:true};}},storage:{local:{get:async()=>({})},onChanged:{addListener:()=>{}}}}});
+  const timers=new Map();let timerId=0;
+  const context=vm.createContext({document,location:new URL(url),URL,Map,Set,String,Number,Math,innerWidth:1000,innerHeight:800,requestAnimationFrame:fn=>frames.push(fn),MutationObserver:class{observe(){}},getComputedStyle:node=>({display:node.style.display||'block',visibility:node.style.visibility||'visible',opacity:node.style.opacity||'1'}),addEventListener:()=>{},setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id),chrome:{runtime:{sendMessage:message=>{messages.push(message);return send?send(message):Promise.resolve({ok:true});}},storage:{local:{get:async()=>({})},onChanged:{addListener:()=>{}}}}});
   vm.runInContext(declarations,context);vm.runInContext(source,context);await Promise.resolve();while(frames.length)frames.shift()();
-  return {document,shadow,messages,flush:()=>{while(frames.length)frames.shift()();}};
+  return {document,shadow,messages,timers,flush:()=>{while(frames.length)frames.shift()();}};
 }
+
+test('a visible button clipped to the viewport edge still dispatches its own product image',async()=>{
+  const app=await mount('<html><body><main><img src="https://img.kwcdn.com/a.jpg" alt="Actual gloves"></main></body></html>',{rect:{left:970,top:30,right:1170,bottom:230,width:200,height:200}});
+  const event=new app.document.defaultView.Event('click');Object.assign(event,{clientX:955,clientY:50});app.shadow.querySelector('button').dispatchEvent(event);await Promise.resolve();
+  assert.equal(app.messages.length,1);assert.equal(app.messages[0].selection.productId,'601123456789001');
+});
+test('an extension context invalidated synchronously on click shows a refresh instruction instead of throwing silently',async()=>{
+  const app=await mount('<html><body><main><img src="https://img.kwcdn.com/a.jpg" alt="Actual gloves"></main></body></html>',{send:()=>{throw Error('Extension context invalidated.');}});
+  assert.doesNotThrow(()=>app.shadow.querySelector('button').click());await Promise.resolve();assert.match(app.shadow.querySelector('.message').textContent,/刷新 TEMU 页面/);assert.equal(app.shadow.querySelector('button').disabled,false);
+});
 
 test('detail hero keeps its visible currentSrc and current product ID despite nearby recommendation links, and uses the real page title',async()=>{
   const app=await mount('<html><head><title>3双厚实的防水厨房手套-米色和薄荷绿，用于洗碗 - Temu</title></head><body><main><section><img id="hero" src="https://img.kwcdn.com/stale-thumbnail.jpg" alt="商品图片"><a href="https://www.temu.com/goods.html?goods_id=601123456789002"><h2>Unrelated pressure gauge</h2></a></section><a href="https://www.temu.com/goods.html?goods_id=601123456789003"><img data-small src="https://img.kwcdn.com/recommendation.jpg" alt="Other product"></a></main></body></html>');
@@ -26,6 +37,7 @@ test('detail hero keeps its visible currentSrc and current product ID despite ne
 test('hidden and covered carousel slides cannot supply overlapping buttons or send a stale selection after a slide switch',async()=>{
   const app=await mount('<html><head><title>Actual glove title</title></head><body><main><div data-product-gallery><img id="visible" src="https://img.kwcdn.com/glove.jpg"><div aria-hidden="true"><img src="https://img.kwcdn.com/hidden.jpg"></div><div style="opacity:0"><img src="https://img.kwcdn.com/transparent.jpg"></div><img id="covered" src="https://img.kwcdn.com/covered.jpg"></div></main></body></html>',{front:'visible'});
   assert.equal(app.shadow.querySelectorAll('button').length,1);const button=app.shadow.querySelector('button');button.click();assert.equal(app.messages[0].selection.imageUrl,'https://img.kwcdn.com/glove.jpg');
+  await new Promise(resolve=>setImmediate(resolve));
   app.document.getElementById('visible').setAttribute('hidden','');button.click();assert.equal(app.messages.length,1,'stale hidden image cannot be dispatched');app.flush();assert.equal(app.shadow.querySelectorAll('button').length,0);
 });
 
@@ -57,4 +69,16 @@ test('buttons follow visible product images, pass the selected product, and disa
   rect={...rect,top:100,bottom:300,right:420};events.scroll();while(frames.length)frames.shift()();assert.equal(button.style.top,'106px');assert.equal(button.style.right,'586px');
   storageListener({preferences:{newValue:{imageButtons:false}}},'local');while(frames.length)frames.shift()();assert.equal(shadow.querySelectorAll('button').length,0);
   vm.runInContext(source,context);assert.equal(document.querySelectorAll('#temu-exact-image-buttons').length,1);
+});
+
+test('pending clicks show progress, suppress duplicates, time out visibly and ignore an older late acknowledgement',async()=>{
+  const replies=[];const app=await mount('<html><body><main><img src="https://img.kwcdn.com/a.jpg" alt="Actual gloves"></main></body></html>',{send:()=>new Promise(resolve=>replies.push(resolve))});
+  const button=app.shadow.querySelector('button');button.click();assert.equal(button.disabled,true);assert.equal(button.textContent,'正在打开…');button.click();assert.equal(app.messages.length,1);
+  [...app.timers.values()][0].fn();assert.equal(button.disabled,false);assert.match(app.shadow.querySelector('.message').textContent,/暂未响应/);
+  button.click();assert.equal(app.messages.length,2);replies[0]({ok:true});await new Promise(resolve=>setImmediate(resolve));assert.equal(button.disabled,true);
+  replies[1]({ok:false,error:'Actual startup failure'});await new Promise(resolve=>setImmediate(resolve));assert.equal(button.disabled,false);assert.equal(app.shadow.querySelector('.message').textContent,'Actual startup failure');
+});
+test('a moved image requests a refreshed button instead of silently ignoring a click or picking a different image',async()=>{
+  const rect={left:20,top:30,right:620,bottom:630,width:600,height:600};const app=await mount('<html><body><main><img src="https://img.kwcdn.com/a.jpg" alt="Actual gloves"></main></body></html>',{rect});const button=app.shadow.querySelector('button');rect.top=100;rect.bottom=700;
+  button.click();assert.equal(app.messages.length,0);assert.match(app.shadow.querySelector('.message').textContent,/图片位置已变化/);app.flush();button.click();assert.equal(app.messages.length,1);assert.equal(app.messages[0].selection.imageUrl,'https://img.kwcdn.com/a.jpg');
 });

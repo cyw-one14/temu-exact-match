@@ -5,7 +5,7 @@
   const host=document.createElement('div');host.id='temu-exact-image-buttons';
   host.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:2147483647;';
   const shadow=host.attachShadow({mode:'closed'});
-  const style=document.createElement('style');style.textContent=':host{all:initial}button{position:absolute;pointer-events:auto;border:1px solid #fff;border-radius:7px;background:#c24a09;color:#fff;font:600 12px/1.3 Arial,"Microsoft YaHei",sans-serif;padding:6px 8px;box-shadow:0 2px 8px #0003;cursor:pointer}button:hover{background:#9d3905}button:focus-visible{outline:2px solid #242629;outline-offset:2px}.message{position:absolute;bottom:20px;left:20px;background:#242629;color:white;padding:12px;border-radius:8px;font:13px Arial;max-width:350px;pointer-events:auto}';shadow.append(style);
+  const style=document.createElement('style');style.textContent=':host{all:initial}button{position:absolute;pointer-events:auto;border:1px solid #fff;border-radius:7px;background:#c24a09;color:#fff;font:600 12px/1.3 Arial,"Microsoft YaHei",sans-serif;padding:6px 8px;box-shadow:0 2px 8px #0003;cursor:pointer}button:hover{background:#9d3905}button:focus-visible{outline:2px solid #242629;outline-offset:2px}.message{position:absolute;bottom:20px;left:20px;background:#242629;color:white;padding:12px;border-radius:8px;font:13px Arial;max-width:min(350px,calc(100vw - 64px));overflow-wrap:anywhere;pointer-events:auto}';shadow.append(style);
   document.documentElement.append(host);
   const buttons=new Map();
   const clean=value=>String(value||'').replace(/\s+/g,' ').trim();
@@ -66,7 +66,34 @@
     if(!title){title=usableTitle(img.alt);titleSource=title?'image-alt':'';}
     return {imageUrl,productId,title,titleSource,productIdSource,pageUrl:location.href};
   }
-  function notice(message){const note=document.createElement('div');note.className='message';note.setAttribute('role','status');note.textContent=message;shadow.append(note);setTimeout(()=>note.remove(),6000);}
+  function notice(message){
+    shadow.querySelector('.message')?.remove();
+    const note=document.createElement('div');note.className='message';note.setAttribute('role','status');note.textContent=message;shadow.append(note);setTimeout(()=>note.remove(),8000);
+  }
+  async function pick(img,button){
+    if(button.disabled)return;
+    let timer,token;
+    const release=()=>{if(button.temuOpening===token){delete button.temuOpening;button.disabled=false;button.textContent='查同款';}};
+    try{
+      if(!exposed(img)){notice('图片已切换或隐藏，按钮正在更新，请在当前商品图片上重试');schedule();return;}
+      const rect=img.getBoundingClientRect();
+      // The button is clamped to the viewport. A valid button click can fall
+      // outside a partially visible image; compare its anchor, not click pixels.
+      if(Math.abs(parseFloat(button.style.top)-Math.max(4,rect.top+6))>4||Math.abs(parseFloat(button.style.right)-Math.max(6,innerWidth-rect.right+6))>4){notice('图片位置已变化，按钮正在更新，请再点一次');schedule();return;}
+      const latest=selection(img,globalThis.temuDeclaredProducts?.()||new Map());
+      if(!latest){notice('当前图片无法绑定到商品，请刷新 TEMU 页面后重试');schedule();return;}
+      token={};button.temuOpening=token;button.disabled=true;button.textContent='正在打开…';
+      timer=setTimeout(()=>{if(button.temuOpening===token){release();notice('同款助手暂未响应，请刷新 TEMU 页面后重试，或点击工具栏插件图标');}},8000);
+      // No await before this call: keep the content-script click gesture.
+      const response=await chrome.runtime.sendMessage({type:'image-picked',selection:latest});
+      if(button.temuOpening!==token)return;
+      if(!response?.ok)notice(response?.error||'无法打开同款助手，请刷新页面或点击工具栏插件图标');
+      else notice(response.opened==='tab'?'已在新标签页打开同款助手':'已发送当前商品图片，正在打开同款助手');
+    }catch(error){
+      if(token&&button.temuOpening!==token)return;
+      notice(/context invalidated|cannot read|chrome is not defined/i.test(error?.message||'')?'插件已更新或连接已失效，请刷新 TEMU 页面后重试':'同款助手连接失败，请刷新 TEMU 页面后重试，或点击工具栏插件图标');
+    }finally{if(timer)clearTimeout(timer);if(token)release();}
+  }
   function refresh(){
     scheduled=false;const keep=new Set();
     const declarations=globalThis.temuDeclaredProducts?.()||new Map();
@@ -78,7 +105,7 @@
       const value=selection(img,declarations);if(!value)continue;keep.add(img);
       let button=buttons.get(img);
       if(!button){button=document.createElement('button');button.type='button';button.textContent='查同款';button.title='完全同款助手 · 用这张图片查同款';button.setAttribute('aria-label','查询此商品图片的完全同款');
-        button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(!exposed(img)){schedule();return;}const rect=img.getBoundingClientRect();if((event.clientX||event.clientY)&&(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)){schedule();return;}const latest=selection(img,globalThis.temuDeclaredProducts?.()||new Map());if(!latest)return;chrome.runtime.sendMessage({type:'image-picked',selection:latest}).then(response=>{if(!response?.ok)notice(response?.error||'无法打开侧栏，请点击工具栏插件图标');}).catch(()=>notice('插件已更新，请刷新 TEMU 页面后重试'));});
+        button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();pick(img,button);});
         shadow.append(button);buttons.set(img,button);}
       button.style.right=Math.max(6,innerWidth-rect.right+6)+'px';button.style.top=Math.max(4,rect.top+6)+'px';
     }
