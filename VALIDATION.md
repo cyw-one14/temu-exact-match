@@ -300,3 +300,11 @@
 - 独立本机按钮UI预览使用明确测试标题/ID和已捕获手套图，runtime回应为测试桩，未发送真实图搜。只在测试页面将shadow设为open供DOM自动点击，生产仍为closed；已观察正常点击消息、上下文同步异常时刷新提示、助手标签页回应提示。截图.cache/ui-validation/image-button-recovery-0.2.10.jpg，临时标签页与43212预览已关闭；这不是用户账号/真实浏览器扩展端到端验证，不当作真实识别准确率。
 - 最终ZIP22文件、69,381字节，MV3/共享模块逐字同步/0.2.10版本/无配置密钥校验通过，扩展ID保持ofacjamiaffjahodlncfbcpekooecjno。经service-control.mjs start进程归属检查更新正式43187服务；实际health为0.2.10/title-groups-v15，主体与SIFT ready，人体关注/诊断模型idle按需加载。git diff --check通过；fetch确认起点与origin/main一致，保留其他维护者改动，不强制推送。
 - 修复代码已在磁盘和安装包；浏览器中的旧内容脚本不会自动变成新版，需要在扩展页重新加载并确认0.2.10，然后对原TEMU页按F5刷新，再点击“查同款”。未声称已代用户重载其浏览器扩展或确认本次真实页面恢复。
+
+## 2026-10-14：启动本机服务与Windows登录自启
+
+- 用户要求启动插件并避免每次手动启动。开始时磁盘main/d3ba991工作区干净，已读AGENTS、README和验证记录。用现有service-control.mjs start启动正式43187服务，随后health确认0.2.10/title-groups-v15、主体模型/SIFT ready；人体关注与诊断模型idle按需加载。未更改浏览器扩展启用状态或宣称已经验证用户TEMU页面。
+- 当前用户Startup目录原来没有本项目启动项，保留既有Codex Cloud Relay.lnk。新增service-autostart.mjs及开启/关闭开机自启.cmd；配置只写当前用户的TEMU Exact Match Service.lnk，通过隐藏PowerShell进程调用当前Node绝对路径和既有service-control.mjs start，不弹出设置页面、不需要管理员权限，不改变执行策略。重复enable会更新同一快捷方式，归属不符的同名项拒绝修改/删除，disable仅取消未来登录自启，不停止当前服务。
+- 已实际enable、status回读enabled=true，并用Start-Process -WindowStyle Hidden执行该快捷方式。日志证实复用已运行服务，前后PID均33060，未生成重复服务进程；health继续为ready。初次启动日志中文因Windows PowerShell原生输出编码出现乱码，设置该后台进程的UTF8输出后重新配置并实测，.cache/autostart.log中文正确。没有重启/注销用户电脑，验证的是启动项已配置且能实际启动，不是实测完成一次系统登录。
+- 新脚本语法检查及既有服务归属/运行时2项检查通过。此次为可逆的本机启动设置，没有修改识别算法、采集、浏览器脚本或版本；扩展保持0.2.10。重新打包/校验通过：ZIP22文件、69,381字节，MV3/共享模块同步/版本/无密钥校验通过，ID保持；机器快捷方式、进程记录及日志不入Git。README、安装说明与共同维护约定同步；参考[微软Startup配置说明](https://support.microsoft.com/en-gb/windows/experience/startup-boot/configure-startup-applications-in-windows)。
+- 本机服务后台持续运行，关闭侧栏/浏览器不会主动停止它；关机/注销后进程停止，下一次Windows登录由启动项再启动，睡眠时暂停。不是全天在线的远程服务器，也没有增加周期性重启/轮询任务；项目或Node路径改变需重新enable。git diff --check通过，fetch确认起点与origin/main一致。

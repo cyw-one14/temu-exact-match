@@ -25,5 +25,6 @@
 - 不提交 .cache、node_modules、dist、test-output、.local-*、环境密钥或私钥。扩展 manifest.json 的 key 是配对用公钥，应保留以稳定扩展ID；没有私钥需要上传。
 - 修改 shared 模块或扩展代码后运行 node scripts/package.mjs，并运行 python scripts/verify-package.py 校验；不将生成的 ZIP 加入源码提交。
 - 当前本机服务端口43187，启动/停止用 scripts/service-control.mjs，保持服务归属检查，不停止其他项目的进程。
+- 2026-10-14增加当前Windows用户登录自启：scripts/service-autostart.mjs enable|disable|status管理Startup中的TEMU Exact Match Service.lnk，归属/路径不符不得覆盖或删除；实际启动仍走现有service-control.mjs，保持后台隐藏与进程复用，不改执行策略。关闭自启不停止当前服务，机器启动项不入Git。
 - 不根据测试用例通过宣称全品类准确率；真实梳子案例目前仍有多件参考/单件候选及细节对应不足的问题。
 - 红框手套样本仍是无法确认，见GLOVE-MATCH-DIAGNOSIS.md；未知品牌/规格不导致图像排除。保留标题或字段中能读到的页面描述，不将描述当已绑定SKU的实物规格。

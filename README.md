@@ -43,6 +43,10 @@ Codex与Qoder的共同维护约定见AGENTS.md。开发前检查git status和相
 
 启动 / 停止入口直接使用 Node.js，兼容 Windows PowerShell 禁止执行 `.ps1` 文件的环境，无需更改系统执行策略。重复点击启动会复用已就绪的本项目服务；启动失败时窗口保留错误提示，日志位于 `.cache/service-error.log`。
 
+本机服务启动后在后台保持运行，关闭侧栏或浏览器不会停止它，无需每次使用都重新启动。需要登录Windows后自动启动时，双击`开启开机自启.cmd`；当前用户Startup文件夹会加入本项目专用快捷方式，以隐藏窗口调用现有服务管理器，不自动弹出设置网页，不需要管理员权限。双击`关闭开机自启.cmd`只取消以后的登录自启，当前服务继续运行；立即停止仍用`停止服务.cmd`。服务仅监听本机43187端口，关机/注销后不能继续运行，睡眠期间暂停，下一次登录由启动项重新启动。启动记录见`.cache/autostart.log`；项目目录或Node.js安装路径改变后，应重新开启自启以更新快捷方式。此设置只在执行它的电脑/用户上生效，源码和扩展ZIP不会替其他电脑安装启动项。
+
+维护命令为`node scripts/service-autostart.mjs enable|disable|status`。脚本只管理`TEMU Exact Match Service.lnk`并核对项目路径与归属，不覆盖同名但属于其他项目的启动项。采用[微软支持的当前用户Startup快捷方式](https://support.microsoft.com/en-gb/windows/experience/startup-boot/configure-startup-applications-in-windows)；不修改PowerShell执行策略。
+
 ## 同款判断规则
 
 - **唯一标准是图片中的商品主体一致**：同图证据、SIFT 快速核验或主体模型确认一致后保留同款；只有图像证据显示商品主体不同才排除；初步不同的候选先复核镜像与旋转，仍无法对齐时保留无法确认。背景、排版、图片说明文字不属于商品主体。
