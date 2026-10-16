@@ -4,6 +4,14 @@
 <body>
 <header class="app-header"><div><h1>TEMU 同款助手</h1><p>美国站 · 自动比较同款价格与标题</p></div><button id="settings" class="quiet" type="button">设置</button></header>
 <main>
+  <section id="analysis-progress" class="analysis-progress" hidden aria-label="本次分析进度">
+    <div class="progress-heading"><div><p class="progress-eyebrow">本次同款分析</p><h2 id="progress-title" aria-live="polite">等待开始</h2></div><strong id="progress-percent">0%</strong></div>
+    <div id="progress-bar" class="progress-track" role="progressbar" aria-label="商品核对完成比例" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
+    <p id="progress-count" class="progress-count"></p>
+    <ol class="progress-steps" aria-label="分析步骤"><li data-step="collect">1 收集商品</li><li data-step="images">2 图片初筛</li><li data-step="subject">3 核对主体</li><li data-step="complete">4 查看结果</li></ol>
+    <p id="progress-detail" class="progress-detail"></p>
+    <div id="progress-totals" class="progress-totals"></div>
+  </section>
   <section class="upload-section">
     <label for="upload" class="upload-label"><span class="upload-symbol">＋</span><strong>上传产品图片</strong><span>PNG / JPG / WebP · 最大 8 MB</span><input id="upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
     <div id="reference" class="reference" hidden><img id="reference-image" alt="用户上传的产品"><div><strong id="reference-name">待识别产品</strong><p id="reference-description"></p><button id="replace-image" class="quiet" type="button">更换图片</button></div></div>
@@ -31,16 +39,17 @@
     <div class="section-header"><h2>同款价格与标题</h2><span id="count"></span></div>
     <label for="result-sort" class="visually-hidden">结果排序</label><select id="result-sort"><option value="match">主体匹配程度优先</option><option value="price">页面 USD 价格 / 起价从低到高</option><option value="sales">页面销量从高到低（按口径分组）</option></select>
     <p id="scope" class="hint"></p>
+    <p class="hint">判断有误时，可在商品卡片上点“移出同款”或“归为同款”。人工调整随本次分析保存，可恢复自动判断。</p>
     <div id="exact-results"></div>
     <div id="empty" class="empty" hidden><strong>暂无已确认的主体同款</strong><p>工具自动判断后会在这里展示真实标题、价格与商品链接。</p></div>
     <details id="pending-section"><summary id="pending-count">自动处理 / 无法确认</summary><div id="pending-results"></div></details>
-    <details id="excluded-section"><summary id="excluded-count">已排除商品</summary><div id="excluded-results"></div></details>
+    <details id="excluded-section"><summary id="excluded-count">非同款商品</summary><div id="excluded-results"></div></details>
     <button id="compare-collected" type="button" disabled>重新自动核对</button>
     <button id="export" class="quiet" type="button">导出本次分析 JSON</button>
   </section>
   <section id="keyword-section" hidden>
     <div class="section-header"><h2>销量 Top10 · 每链接关键词</h2><span id="keyword-caption">每组前 10 款</span></div>
-    <p class="hint">从已读取、按当前规则判定的同款中，每个国家站 / 来源 / 周期分别取页面销量前10款。逐链接保留关键词原文与证据，区分主体一致、颜色补充或轮廓补充；标题原词不代表关键词自身的搜索量或转化率。</p>
+    <p class="hint">从当前同款分类中，每个国家站 / 来源 / 周期分别取页面销量前10款。人工调整后即时更新，保留自动判断与人工调整标记；标题原词不代表关键词自身的搜索量或转化率。</p>
     <div id="keywords" class="keywords"></div>
     <details><summary>手动检索词</summary><p class="hint">可使用上方商品原词，或自行填写检索词。</p><div id="retrieval-keywords" class="keywords"></div><div class="manual-search"><label for="manual-keyword" class="visually-hidden">手动填写搜索词</label><input id="manual-keyword" placeholder="手动填写搜索词"><button id="add-keyword" type="button">添加</button></div><button id="search-keywords" type="button">检索已选关键词</button></details>
   </section>

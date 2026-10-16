@@ -68,7 +68,11 @@ export function decideExact(comparison, referenceSpecs = {}, candidateText = '')
   return { status:'exact', reason:'图片 / 外观与已提供规格均核对一致', missing:[] };
 }
 
-export function isProductMatch(item){return ['exact','visual-match','rule-match','outline-match','inferred-match'].includes(item?.status);}
+// A user correction belongs to this reference-image analysis. Keep the automatic
+// status and evidence intact, including when a running request finishes later.
+export function manualDecision(item){const value=item?.manualClassification;return value?.source==='user'&&['same','different'].includes(value.decision)?value.decision:null;}
+export function effectiveMatchStatus(item){return manualDecision(item)==='same'?'manual-match':manualDecision(item)==='different'?'manual-different':item?.status;}
+export function isProductMatch(item){return ['exact','visual-match','rule-match','outline-match','inferred-match','manual-match'].includes(effectiveMatchStatus(item));}
 
 // Only explicit, unambiguous title counts. Multi-SKU titles remain unknown.
 export function titleQuantity(title){
@@ -229,7 +233,7 @@ export function listingKeywordEvidence(product) {
   const explicit=(product.productKeywords||[]).filter(word=>typeof word.query==='string'&&word.query.trim()&&word.query.trim().length<=180&&product.id&&word.productId===product.id&&typeof word.evidence==='string'&&word.evidence.includes(word.query.trim())&&sourcePageUrl(word.pageUrl));
   const candidates=explicit.length?explicit.map(word=>({...word,query:word.query.trim(),kind:'product-keyword'})):titleKeywords(product.title).map(query=>({query,kind:'title-phrase',evidence:product.title,pageUrl:product.sourceUrl||product.url,capturedAt:product.capturedAt}));
   const seen=new Set();
-  return candidates.filter(word=>{const key=JSON.stringify([word.query,word.kind,word.evidence,word.pageUrl]);if(seen.has(key))return false;seen.add(key);return true;}).map(word=>({query:word.query,productId:product.id,url:product.url,title:product.title,matchStatus:product.status,sales:product.sales,market:product.market,salesSource:product.salesSource||'temu-visible',kind:word.kind,evidence:word.evidence,pageUrl:word.pageUrl,capturedAt:word.capturedAt||product.capturedAt||null}));
+  return candidates.filter(word=>{const key=JSON.stringify([word.query,word.kind,word.evidence,word.pageUrl]);if(seen.has(key))return false;seen.add(key);return true;}).map(word=>({query:word.query,productId:product.id,url:product.url,title:product.title,matchStatus:effectiveMatchStatus(product),automaticStatus:product.status,...(manualDecision(product)?{manualClassification:product.manualClassification}:{}),sales:product.sales,market:product.market,salesSource:product.salesSource||'temu-visible',kind:word.kind,evidence:word.evidence,pageUrl:word.pageUrl,capturedAt:word.capturedAt||product.capturedAt||null}));
 }
 
 function sourcePageUrl(value){
@@ -239,7 +243,7 @@ function sourcePageUrl(value){
 export function bestSellerKeywords(items, topCount=10) {
   const limit=Number.isFinite(topCount)?Math.max(1,Math.min(10,Math.floor(topCount))):10;
   const groups=new Map();
-  for(const item of rankMatches(items.filter(item=>item.status!=='inferred-match'))){
+  for(const item of rankMatches(items.filter(item=>effectiveMatchStatus(item)!=='inferred-match'))){
     if(salesDisplayNumber(item.sales)===null)continue;
     if(!groups.has(item.salesCohort))groups.set(item.salesCohort,[]);
     const group=groups.get(item.salesCohort);
@@ -262,8 +266,8 @@ export function bestSellerKeywords(items, topCount=10) {
 export function keywordMetrics(queries, items) {
   return queries.map(query => {
     const found = items.filter(item => (item.queries || []).includes(query));
-    const exactCount = found.filter(item=>item.status==='exact').length;
-    const evaluated = found.filter(item=>['exact','pending','different'].includes(item.status)).length;
+    const exactCount = found.filter(isProductMatch).length;
+    const evaluated = found.filter(item=>isProductMatch(item)||['pending','different','manual-different'].includes(effectiveMatchStatus(item))).length;
     return { query, total:found.length, evaluated, exactCount, precision:evaluated?exactCount/evaluated:0 };
   }).sort((a,b)=>b.exactCount-a.exactCount || b.precision-a.precision);
 }

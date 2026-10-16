@@ -20,11 +20,19 @@ if(process.argv.includes('--collection')){
   fixture.collectionHistory=[];
   fixture.pages=[{url:'http://127.0.0.1:43211/?qa-page=1'},{url:'http://127.0.0.1:43211/?qa-page=2'}];
 }
-const bootstrap=`const fixture=${JSON.stringify(fixture)}; globalThis.chrome={windows:{getCurrent:async()=>({id:1})},storage:{onChanged:{addListener:()=>{}},session:{get:async()=>({'temuMatch:1':fixture}),set:async()=>{}},local:{get:async()=>({})}},runtime:{openOptionsPage:async()=>{}},tabs:{}}; globalThis.fetch=async()=>({ok:true,json:async()=>({engine:'local',model:{state:'ready',message:'界面测试 · 无真实查询',progress:100}})});await import('/panel.js');`;
+const interactive=process.argv.includes('--interaction');
+if(interactive){
+  const template=fixture.items[0];
+  fixture.referenceContext={collectionRevision:'declared-product-v1',title:'界面测试参考图'};
+  fixture.items=Array.from({length:5},(_,i)=>({...template,id:'qa-interaction-'+i,title:'界面测试商品 '+(i+1)+' · 清洁手套（仅测试数据）',status:i===0?'visual-match':i===1?'different':'pending',subjectAttempt:i<2?1:undefined,sales:{raw:(100-i)+' sold',kind:'exact',lowerBound:100-i,exact:true,period:'unknown'}}));
+}
+const bootstrap=`const fixture=${JSON.stringify(fixture)}; globalThis.chrome={windows:{getCurrent:async()=>({id:1})},storage:{onChanged:{addListener:()=>{}},session:{get:async()=>({'temuMatch:1':fixture}),set:async()=>{}},local:{get:async()=>({})}},runtime:{openOptionsPage:async()=>{}},tabs:{}};
+const queue=[];globalThis.fetch=async(url,options)=>{if(url.endsWith('/compare'))return new Promise(resolve=>{queue.push(()=>resolve({ok:true,json:async()=>({ok:true,comparison:{status:'visual-match',evidence:['仅界面测试的核对响应'],missing:[]}})}));options.signal.addEventListener('abort',()=>resolve({ok:true,json:async()=>({ok:true,comparison:{status:'pending'}})}),{once:true});});return {ok:true,json:async()=>({engine:'local',model:{state:'ready',message:'界面测试 · 无真实查询',progress:100}})};};
+document.getElementById('qa-finish')?.addEventListener('click',()=>queue.shift()?.());await import('/panel.js');`;
 const server=http.createServer(async(req,res)=>{
   const name=new URL(req.url,'http://127.0.0.1:43211').pathname.slice(1);
   if(name==='qa.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bootstrap);return;}
-  if(!name){res.setHeader('Content-Type','text/html');res.end((await readFile(new URL('panel.html',root),'utf8')).replace('src="panel.js"','src="qa.mjs"').replace('<h1>TEMU 同款助手</h1>','<h1>界面校验 · 测试数据</h1>'));return;}
+  if(!name){res.setHeader('Content-Type','text/html');res.end((await readFile(new URL('panel.html',root),'utf8')).replace('src="panel.js"','src="qa.mjs"').replace('<h1>TEMU 同款助手</h1>','<h1>界面校验 · 测试数据</h1>').replace('<main>',(interactive?'<button id="qa-finish" type="button">测试：完成一条主体核对</button>':'')+'<main>'));return;}
   if(!files.has(name)){res.writeHead(404);res.end();return;}
   res.setHeader('Content-Type',/\.(?:js|mjs)$/.test(name)?'text/javascript':/\.css$/.test(name)?'text/css':/\.png$/.test(name)?'image/png':'text/html');res.end(await readFile(new URL(name,root)));
 });
