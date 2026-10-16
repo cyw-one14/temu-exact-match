@@ -3,7 +3,7 @@
 <body><main class="settings-main"><h1>TEMU 同款助手设置</h1><p class="hint">美国站 · 浏览器真实页面数据</p>
 <section><h2>图片按钮与图搜</h2>
 <label><input id="image-buttons" type="checkbox" checked> 在 TEMU 商品图片右上角显示“查同款”</label>
-<label for="on-image-click">点击图片按钮后</label><select id="on-image-click"><option value="provider">打开选品助手图搜并同步页面结果</option><option value="local">只提取图片到侧栏</option></select>
+<label for="on-image-click">点击图片按钮后</label><select id="on-image-click"><option value="provider">后台打开选品助手图搜并同步结果</option><option value="local">只提取图片到侧栏</option></select>
 <label for="provider-period">第三方销量采用的周期</label><select id="provider-period"><option value="unknown">页面“已售出” / “销量”，周期未知</option><option value="30d">页面标明的近 30 天</option><option value="7d">页面标明的近 7 天</option><option value="month">页面标为“月销量”</option><option value="week">页面标为“周销量”</option><option value="day">页面标为“日销量”</option><option value="today">页面标为“今日销量”</option><option value="total">页面标明的累计 / 总销量</option></select>
 <p class="hint">只有页面展示的字段才可读取。缺少所选周期的商品保留为未知销量；不同来源和周期分别排序。登录与验证在图搜页正常完成。</p></section>
 <section><h2>本机识别服务</h2><p id="health" class="status">正在检查…</p><button id="open-setup" type="button">打开图片识别设置</button><p class="hint">图搜入口、页面结果同步与关键词收集无需本机模型。图片自动核对需要本机服务；默认本地模型无需 API Key。</p></section>

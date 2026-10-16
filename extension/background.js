@@ -56,7 +56,7 @@ async function collect(tabId,selectedImageUrl){
 async function collectProvider(tabId){
   let tab;
   try{tab=await chrome.tabs.get(tabId);}catch(error){
-    if(/no tab with id|invalid tab id/i.test(error.message))throw new Error('图搜标签页已关闭，请点“打开选品助手图搜”重新打开');
+    if(/no tab with id|invalid tab id/i.test(error.message))throw new Error('图搜标签页已关闭，请点“后台打开图搜”重新打开');
     throw error;
   }
   const url=new URL(tab.url||'https://invalid.local');
