@@ -25,7 +25,7 @@
     <details id="provider-input" hidden><summary>本次查询图片与原标题</summary><img id="provider-input-image" alt="实际提交的查询图片"><p id="provider-input-title" class="hint"></p><p id="provider-input-id" class="product-note"></p><a id="provider-input-link" target="_blank" rel="noopener noreferrer">查看所选原图 ↗</a><p class="hint">第三方 Temu 标签会使用标题检索候选；左上角展示所选图片不代表候选均由图片匹配得到。专业版横幅中的图片不属于当前可读取商品列表。</p></details>
   </section>
   <div id="status" class="status" role="status" aria-live="polite">上传图片，然后读取 TEMU 页面或开始检索。</div>
-  <section id="collection-section" hidden><h2>连续采集范围</h2><p id="collection-status" class="hint" aria-live="polite"></p><p class="hint">不设商品条数或总时长截断，按正常结果页滚动 / 翻页并去重。搜索返回范围由网站决定，全站总量未知；采集暂停后自动核对已抓取图片。</p><div class="actions"><button id="stop-collection" type="button">暂停采集，开始核对</button><button id="resume-collection" type="button" hidden>继续采集更多结果</button></div></section>
+  <section id="collection-section" hidden><h2>连续采集范围</h2><p id="collection-status" class="hint" aria-live="polite"></p><p class="hint">每张参考图最多保留100条候选，按来源与商品ID去重，翻页和不同检索词共用上限。满100条自动停止采集并核对，不足时按实际数量；搜索范围由网站决定。</p><div class="actions"><button id="stop-collection" type="button">暂停采集，开始核对</button><button id="resume-collection" type="button" hidden>继续采集更多结果</button></div></section>
   <button id="cancel" type="button" hidden>停止本次检索</button>
   <section id="results-section" hidden>
     <div class="section-header"><h2>同款价格与标题</h2><span id="count"></span></div>

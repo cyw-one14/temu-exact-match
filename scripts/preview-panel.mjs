@@ -15,8 +15,8 @@ if(process.argv.includes('--top10')){
 }
 if(process.argv.includes('--collection')){
   const template=fixture.items[0];
-  fixture.items=Array.from({length:150},(_,i)=>({...template,id:'qa-capture-'+i,title:'界面测试采集商品 '+(i+1)+'（非真实查询数据）',status:'pending',autoAttempt:1,subjectAttempt:1}));
-  fixture.collection={source:'provider',tabId:0,status:'paused',reason:'stalled',total:150,productIds:fixture.items.map(item=>item.id),pageKeys:['界面测试结果页1','界面测试结果页2'],queryKey:'qa-only',query:'界面测试'};
+  fixture.items=Array.from({length:100},(_,i)=>({...template,salesSource:'provider-visible',id:'qa-capture-'+i,title:'界面测试采集商品 '+(i+1)+'（非真实查询数据）',status:'pending',autoAttempt:1,subjectAttempt:1}));
+  fixture.collection={source:'provider',tabId:0,status:'paused',reason:'limit-reached',limit:100,analysisTotal:100,total:100,productIds:fixture.items.map(item=>item.id),pageKeys:['界面测试结果页1','界面测试结果页2'],queryKey:'qa-only',query:'界面测试'};
   fixture.collectionHistory=[];
   fixture.pages=[{url:'http://127.0.0.1:43211/?qa-page=1'},{url:'http://127.0.0.1:43211/?qa-page=2'}];
 }

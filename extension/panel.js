@@ -3,7 +3,7 @@ import {titleMatchEvidence} from './title-match.mjs';
 import {officialImage,providerSearchURL,providerListingTitle,normalizeProviderPage} from './provider.mjs';
 import {priceObservation,priceKindLabel} from './prices.mjs';
 import {listingMetadata,LISTING_LABELS} from './listing.mjs';
-import {createCollection,pauseCollection,resumeCollection,collectionDecision,recordCollectionAdvance,collectionText} from './collection.mjs';
+import {COLLECTION_LIMIT,limitedCandidates,createCollection,pauseCollection,resumeCollection,collectionDecision,recordCollectionAdvance,collectionText} from './collection.mjs';
 
 const $=id=>document.getElementById(id);
 const SERVICE='http://127.0.0.1:43187';
@@ -199,7 +199,7 @@ function render(){
   $('collection-section').hidden=!state.collection&&!storageWarning;
   $('collection-status').textContent=collectionText(state.collection)+(storageWarning?' '+storageWarning:'');
   $('stop-collection').hidden=state.collection?.status!=='running';
-  $('resume-collection').hidden=!state.collection||state.collection.status==='running';
+  $('resume-collection').hidden=!state.collection||state.collection.status==='running'||state.items.length>=COLLECTION_LIMIT;
   const input=state.providerJob?.submittedInput;
   $('provider-input').hidden=!input;
   if(input){
@@ -212,7 +212,7 @@ function render(){
   const exact=rankMatches(state.items),pending=state.items.filter(item=>!isProductMatch(item)&&item.status!=='different'),different=state.items.filter(item=>item.status==='different');
   const colorRuleCount=exact.filter(item=>item.status==='rule-match').length;
   $('count').textContent=exact.length+' 个同款匹配'+(colorRuleCount?'（'+colorRuleCount+' 个主体颜色补充）':'');
-  $('scope').textContent='已读取 '+state.items.length+' 个商品 · '+state.pages.length+' 个页面 · 全站总量未知；国家站、数据来源和销量周期分别处理。';
+  $('scope').textContent='已读取 '+state.items.length+' 个商品 · 本次最多 '+COLLECTION_LIMIT+' 条 · '+state.pages.length+' 个页面 · 全站总量未知；国家站、数据来源和销量周期分别处理。';
   const order=$('result-sort').value||'match';
   const ordered=[...exact].sort((a,b)=>order==='sales'?0:order==='price'?(a.price?.currency==='USD'&&['displayed','range','starting'].includes(a.price.kind)?a.price.low:Infinity)-(b.price?.currency==='USD'&&['displayed','range','starting'].includes(b.price.kind)?b.price.low:Infinity):Number(Boolean(b.samePhoto))-Number(Boolean(a.samePhoto))||Number(b.status==='exact')-Number(a.status==='exact')||(b.imageSimilarity||0)-(a.imageSimilarity||0));
   $('exact-results').replaceChildren(...ordered.map(item=>card(item,false)));
@@ -295,7 +295,9 @@ function pauseCurrentCollection(reason='manual'){
 function beginCollection(source,tabId,query=''){
   stopProviderWatch();
   if(state.collection){if(state.collection.status==='running')pauseCollection(state.collection,'manual');state.collectionHistory.push(state.collection);}
-  state.collection=createCollection({source,tabId,query});autoPaused=false;render();
+  state.collection=createCollection({source,tabId,query});state.collection.analysisTotal=state.items.length;
+  if(state.items.length>=COLLECTION_LIMIT)pauseCollection(state.collection,'limit-reached');
+  autoPaused=false;render();
 }
 function validCollectionPage(page,job=state.collection){
   if(job?.queryKey&&page.navigation?.queryKey!==job.queryKey){pauseCurrentCollection('query-changed');return false;}
@@ -303,9 +305,10 @@ function validCollectionPage(page,job=state.collection){
 }
 async function progressCollection(page,{allowBusy=false}={}){
   const job=state.collection;if(!job||job.status!=='running')return;
-  job.productIds=[...new Set([...job.productIds,...(page.products||[]).map(item=>item.id)])];
+  const retained=new Set(state.items.filter(item=>(item.salesSource||'temu-visible')===(job.source==='provider'?'provider-visible':'temu-visible')).map(item=>item.id));
+  job.productIds=[...new Set([...job.productIds,...(page.products||[]).map(item=>item.id)])].filter(id=>retained.has(id));
   const total=job.productIds.length;
-  const decision=collectionDecision(job,page,{total});
+  const decision=collectionDecision(job,page,{total,analysisTotal:state.items.length});
   if(decision==='advance'&&(!busy||allowBusy)){
     const response=await chrome.runtime.sendMessage({type:'advance-results',tabId:job.tabId,source:job.source,queryKey:job.queryKey});
     if(job!==state.collection||job.status!=='running')return;
@@ -355,7 +358,7 @@ function providerReviewKey(product){
 }
 function mergeProvider(page){
   const byId=new Map(state.items.filter(item=>item.salesSource==='provider-visible').map(item=>[item.id,item]));
-  for(const product of page.products){
+  for(const product of limitedCandidates(page.products,state.items,'provider-visible')){
     const reviewKey=providerReviewKey(product);
     const existing=byId.get(product.id);
     if(existing){
@@ -416,7 +419,7 @@ async function readProvider(manual=false,{priceOnly=false}={}){
     const fingerprint=JSON.stringify([data.products.map(item=>[item.id,item.imageUrl,item.title,item.rawText,item.priceText,item.price?.currency,item.sales,item.market,item.productKeywords?.map(({capturedAt,...word})=>word),item.listingFields,item.structuredSpecs,item.verifiedImages]),data.keywords.map(item=>[item.query,item.metrics])]);
     if(fingerprint!==job.lastFingerprint){job.lastFingerprint=fingerprint;mergeProvider(data);await save();}
     await progressCollection(data);
-    $('provider-status').textContent='当前页面已读取 '+data.products.length+' 个候选商品。'+collectionText(state.collection)+' 采集暂停后自动核对，销量每组展示 Top10。';
+    $('provider-status').textContent='本次分析最多保留 '+COLLECTION_LIMIT+' 条候选。'+collectionText(state.collection)+' 采集暂停后自动核对，销量每组展示 Top10。';
     if(manual){
       if(page.queryImageUrl){job.expectedImageUrl=page.queryImageUrl;job.manualUpload=false;watchProvider();}
       else{job.manualUpload=true;pauseCurrentCollection('navigation-unavailable');$('provider-status').textContent+=' 页面未提供本次图片关联，后续结果需手动读取。';}
@@ -453,13 +456,15 @@ function mergePage(page,query=''){
   const incoming=page.detail&&new URL(page.pageUrl).searchParams.has('goods_id')?[page.detail]:page.products;
   if(page.detail&&/-g-\d+\.html/.test(new URL(page.pageUrl).pathname))incoming.splice(0,incoming.length,page.detail);
   const byId=new Map(state.items.filter(item=>(item.salesSource||'temu-visible')==='temu-visible').map(item=>[item.id,item]));
-  for(const product of incoming){
-    if(page.detail?.id===product.id)for(const saved of state.items.filter(item=>item.id===product.id)){
+  const product=page.detail;
+  if(product)for(const saved of state.items.filter(item=>item.id===product.id)){
       // Enrich the already loaded product without copying another source's price,
       // sales window, picture, status or title into an in-flight comparison.
       saved.detailsText=product.detailsText||product.rawText;saved.structuredSpecs=product.structuredSpecs;saved.listingFields=product.listingFields||[];saved.verifiedImages=product.verifiedImages||[];saved.variantAmbiguous=product.variantAmbiguous;
       saved.detailSourceUrl=product.sourceUrl||page.pageUrl;saved.detailCapturedAt=product.capturedAt||page.capturedAt;
-    }
+  }
+  const admitted=limitedCandidates(incoming,state.items);
+  for(const product of admitted){
     const existing=byId.get(product.id);
     if(existing){existing.queries=[...new Set([...(existing.queries||[]),...(query?[query]:[])])];continue;}
     const item={...product,price:priceObservation(product.priceText,{market:product.market,currency:product.priceCurrency,source:product.priceSource||'visible-page',sourceUrl:page.pageUrl,capturedAt:product.capturedAt}),sales:parseSales(product.rawText),queries:query?[query]:[],status:'unreviewed',missing:[],evidence:[],matchSource:null};
@@ -467,7 +472,7 @@ function mergePage(page,query=''){
   }
   if(!state.pages.some(item=>item.url===page.pageUrl))state.pages.push({url:page.pageUrl,capturedAt:page.capturedAt,query});
   state.lastRun=new Date().toISOString();render();
-  return incoming.length;
+  return admitted.length;
 }
 async function waitForTab(tabId){
   const start=Date.now();
@@ -615,10 +620,11 @@ async function search(){
   const queries=state.selectedQueries.slice(0,3);if(!queries.length)throw new Error('请选至少一组英文搜索词');
   state.lastRun=new Date().toISOString();render();
   for(let i=0;i<queries.length;i++){
+    if(state.items.length>=COLLECTION_LIMIT)break;
     checkCancelled();status('检索关键词 '+(i+1)+' / '+queries.length+'：'+queries[i]);
     const url=new URL('https://www.temu.com/search_result.html');url.searchParams.set('search_key',queries[i]);
     await loadSearchPage(url.href,queries[i]);await save();
-    if(state.collection?.reason==='manual')break;
+    if(['manual','limit-reached'].includes(state.collection?.reason))break;
   }
   if(!state.items.length)throw new Error('本次未读取到商品，请在 TEMU 搜索页确认页面已正常加载');
   await compareItems();
@@ -658,10 +664,11 @@ $('collect').addEventListener('click',()=>run(async()=>{
   const [tab]=await chrome.tabs.query({active:true,currentWindow:true});if(!tab)throw new Error('当前没有可读取的浏览器页');
   const page=await collectTab(tab.id);const query=new URL(page.pageUrl).searchParams.get('search_key')||'';
   if(query)addKeyword(query);
+  if(page.navigation?.supported)beginCollection('temu',tab.id,query);
   const count=mergePage(page,query);
-  if(!count)throw new Error('当前页面未展示可读取商品，请打开商品详情或搜索结果页，等待商品图片加载后重试');
-  if(page.navigation?.supported){beginCollection('temu',tab.id,query);await progressCollection(page);watchProvider();}
-  status('已读取当前页面 '+count+' 个真实商品'+(state.collection?.status==='running'?'，正在继续采集后续结果。':'，正在自动比对。'));requestAutoCompare();
+  if(!count&&state.items.length<COLLECTION_LIMIT)throw new Error('当前页面未展示可读取商品，请打开商品详情或搜索结果页，等待商品图片加载后重试');
+  if(page.navigation?.supported){await progressCollection(page);watchProvider();}
+  status('本次已保留 '+state.items.length+' 个真实商品（最多 '+COLLECTION_LIMIT+' 条）'+(state.collection?.status==='running'?'，正在继续采集后续结果。':'，正在自动比对。'));requestAutoCompare();
 }));
 $('compare-collected').addEventListener('click',()=>{if(busy)return;pauseCurrentCollection();autoPaused=false;run(async()=>{for(const item of state.items)delete item.autoAttempt;await compareItems({automatic:true});});});
 $('search-keywords').addEventListener('click',()=>run(search));
@@ -672,7 +679,7 @@ $('read-provider').addEventListener('click',()=>{if(busy){
 }autoPaused=false;run(()=>readProvider(true));});
 $('stop-provider').addEventListener('click',()=>{pauseCurrentCollection();$('provider-status').textContent='已暂停采集。已抓取商品会自动核对，可继续采集后续结果。';});
 $('stop-collection').addEventListener('click',()=>pauseCurrentCollection());
-$('resume-collection').addEventListener('click',()=>{if(!state.collection)return;resumeCollection(state.collection);autoPaused=false;render();save();watchProvider();});
+$('resume-collection').addEventListener('click',()=>{if(!state.collection)return;if(state.items.length>=COLLECTION_LIMIT){pauseCurrentCollection('limit-reached');return;}resumeCollection(state.collection);autoPaused=false;render();save();watchProvider();});
 window.addEventListener('pagehide',()=>{autoPaused=true;if(state.collection?.status==='running')pauseCollection(state.collection,'panel-closed');stopProviderWatch();save();if(autoTimer)clearTimeout(autoTimer);if(healthTimer)clearInterval(healthTimer);});
 $('add-keyword').addEventListener('click',()=>{addKeyword($('manual-keyword').value);$('manual-keyword').value='';renderKeywords();save();});
 $('manual-keyword').addEventListener('keydown',event=>{if(event.key==='Enter')$('add-keyword').click();});
@@ -681,7 +688,7 @@ $('settings').addEventListener('click',()=>chrome.runtime.openOptionsPage());
 $('result-sort').addEventListener('change',render);
 $('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('模型正在加载，完成后可以识别图片。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.2.10',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,imageSearchInput:state.providerJob?.submittedInput||null,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,keywordEvidence:isProductMatch(item)&&item.status!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.2.11',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,imageSearchInput:state.providerJob?.submittedInput||null,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,keywordEvidence:isProductMatch(item)&&item.status!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
@@ -693,7 +700,12 @@ SPEC_KEYS.forEach(key=>$('spec-'+key).addEventListener('change',()=>{
 try{
   const stored=await chrome.storage.session.get([stateKey,'temuMatch']);const saved=stored[stateKey]||stored.temuMatch;
   if(saved?.referenceImage){state={...emptyState(),...saved};if(saved.keywordPolicy!=='best-sellers-v1'){state.keywords=[];state.selectedQueries=[];state.keywordSources={};state.keywordPolicy='best-sellers-v1';}for(const key of SPEC_KEYS)$('spec-'+key).value=state.referenceSpecs?.[key]||'';}
-  if(state.collection?.status==='running')pauseCollection(state.collection,'panel-closed');
+  state.items=state.items.slice(0,COLLECTION_LIMIT);
+  if(state.collection){
+    const retained=new Set(state.items.filter(item=>(item.salesSource||'temu-visible')===(state.collection.source==='provider'?'provider-visible':'temu-visible')).map(item=>item.id));
+    state.collection.productIds=(state.collection.productIds||[]).filter(id=>retained.has(id));state.collection.total=state.collection.productIds.length;state.collection.analysisTotal=state.items.length;state.collection.limit=COLLECTION_LIMIT;
+    if(state.items.length>=COLLECTION_LIMIT)pauseCollection(state.collection,'limit-reached');else if(state.collection.status==='running')pauseCollection(state.collection,'panel-closed');
+  }
   if(saved&&saved.matchingPolicy!==MATCHING_POLICY){state.matchingPolicy=MATCHING_POLICY;for(const item of state.items){item.status='unreviewed';item.matchSource=null;item.evidence=[];item.missing=[];item.differences=[];delete item.subject;delete item.fastMatch;delete item.instanceMatch;delete item.matchedReferenceImageUrl;delete item.referenceEvidence;delete item.titleEvidence;delete item.listingColorMatch;delete item.subjectReview;delete item.subjectDifferences;delete item.visualChecks;delete item.checks;delete item.listingDifferences;delete item.packDifference;delete item.priorityScore;delete item.pageImagePriority;delete item.matchStage;delete item.subjectAttempt;delete item.autoAttempt;}}
 }catch{}
 chrome.storage.onChanged.addListener((changes,area)=>{if(area==='session'&&changes[selectionKey]?.newValue)acceptSelection(changes[selectionKey].newValue);});
