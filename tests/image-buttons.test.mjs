@@ -9,8 +9,8 @@ const declarations=await readFile(new URL('../extension/structured-fields.js',im
 async function mount(html,{url='https://www.temu.com/goods.html?goods_id=601123456789001',front='',rect=null,send=null}={}){
   const {document}=parseHTML(html);let shadow;const original=document.createElement.bind(document),frames=[],messages=[];
   document.createElement=(...args)=>{const node=original(...args),attach=node.attachShadow.bind(node);node.attachShadow=options=>{shadow=attach(options);return shadow;};return node;};
-  for(const img of document.querySelectorAll('img')){const size=img.getAttribute('data-small')?100:600;img.getBoundingClientRect=()=>rect||({left:20,top:30,right:20+size,bottom:30+size,width:size,height:size});img.getClientRects=()=>[img.getBoundingClientRect()];}
-  if(front)document.elementsFromPoint=()=>[document.getElementById(front),document.querySelector('main')];
+  for(const img of document.querySelectorAll('img')){const size=img.getAttribute('data-small')?100:600;img.getBoundingClientRect=()=>typeof rect==='function'?rect(img):rect||({left:20,top:30,right:20+size,bottom:30+size,width:size,height:size});img.getClientRects=()=>[img.getBoundingClientRect()];}
+  if(front)document.elementsFromPoint=(x,y)=>typeof front==='function'?front(document,x,y):[document.getElementById(front),document.querySelector('main')];
   const timers=new Map();let timerId=0;
   const context=vm.createContext({document,location:new URL(url),URL,Map,Set,String,Number,Math,innerWidth:1000,innerHeight:800,requestAnimationFrame:fn=>frames.push(fn),MutationObserver:class{observe(){}},getComputedStyle:node=>({display:node.style.display||'block',visibility:node.style.visibility||'visible',opacity:node.style.opacity||'1'}),addEventListener:()=>{},setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id),chrome:{runtime:{sendMessage:message=>{messages.push(message);return send?send(message):Promise.resolve({ok:true});}},storage:{local:{get:async()=>({})},onChanged:{addListener:()=>{}}}}});
   vm.runInContext(declarations,context);vm.runInContext(source,context);await Promise.resolve();while(frames.length)frames.shift()();
@@ -21,6 +21,29 @@ test('a visible button clipped to the viewport edge still dispatches its own pro
   const app=await mount('<html><body><main><img src="https://img.kwcdn.com/a.jpg" alt="Actual gloves"></main></body></html>',{rect:{left:970,top:30,right:1170,bottom:230,width:200,height:200}});
   const event=new app.document.defaultView.Event('click');Object.assign(event,{clientX:955,clientY:50});app.shadow.querySelector('button').dispatchEvent(event);await Promise.resolve();
   assert.equal(app.messages.length,1);assert.equal(app.messages[0].selection.productId,'601123456789001');
+});
+
+test('a detail hero inside a non-product zoom link keeps its own button instead of leaving only the thumbnail',async()=>{
+  const app=await mount('<html><head><title>Actual glove title</title></head><body><main><div><a href="https://img.kwcdn.com/hero.jpg"><img id="hero" src="https://img.kwcdn.com/hero.jpg"></a></div><img data-small src="https://img.kwcdn.com/thumb.jpg"></main></body></html>');
+  for(const button of app.shadow.querySelectorAll('button'))button.click();
+  assert.ok(app.messages.some(message=>message.selection.imageUrl==='https://img.kwcdn.com/hero.jpg'&&message.selection.productId==='601123456789001'));
+});
+test('an offscreen larger carousel image cannot displace the visible detail hero',async()=>{
+  const app=await mount('<html><body><main><img id="hero" src="https://img.kwcdn.com/hero.jpg"><img id="offscreen" src="https://img.kwcdn.com/preload.jpg"></main></body></html>',{rect:img=>img.id==='offscreen'?{left:20,top:1200,right:1220,bottom:2400,width:1200,height:1200}:{left:20,top:30,right:620,bottom:630,width:600,height:600}});
+  assert.equal(app.shadow.querySelectorAll('button').length,1);app.shadow.querySelector('button').click();assert.equal(app.messages[0].selection.imageUrl,'https://img.kwcdn.com/hero.jpg');
+});
+test('the current page main-image address binds a visible hero independently of a larger neighboring image',async()=>{
+  const app=await mount('<html><head><title>Actual glove title</title></head><body><main><img id="hero" src="https://img.kwcdn.com/hero.jpg?imageView2/2/w/800"><img id="other" src="https://img.kwcdn.com/other.jpg"></main></body></html>',{url:'https://www.temu.com/us-zh-Hans/gloves-g-601123456789001.html?top_gallery_url=https%3A%2F%2Fimg.kwcdn.com%2Fhero.jpg',rect:img=>img.id==='other'?{left:640,top:30,right:990,bottom:780,width:350,height:750}:{left:20,top:30,right:420,bottom:430,width:400,height:400}});
+  for(const button of app.shadow.querySelectorAll('button'))button.click();
+  const hero=app.messages.find(message=>message.selection.imageUrl.includes('/hero.jpg'));assert.ok(hero);assert.equal(hero.selection.productId,'601123456789001');assert.equal(hero.selection.productIdSource,'current-page-image');
+});
+test('a page main-image parameter never rebinds a different product card or an external shop link to the current product',async()=>{
+  const app=await mount('<html><body><main><a href="https://www.temu.com/goods.html?goods_id=601123456789002"><img src="https://img.kwcdn.com/hero.jpg"></a><a href="https://shop.example/product"><img src="https://img.kwcdn.com/other.jpg"></a></main></body></html>',{url:'https://www.temu.com/goods.html?goods_id=601123456789001&top_gallery_url=https%3A%2F%2Fimg.kwcdn.com%2Fhero.jpg'});
+  assert.equal(app.shadow.querySelectorAll('button').length,1);app.shadow.querySelector('button').click();assert.equal(app.messages[0].selection.productId,'601123456789002');assert.equal(app.messages[0].selection.productIdSource,'enclosing-product-link');
+});
+test('a small image over the hero center does not hide the hero button, while fully covered slides remain excluded',async()=>{
+  const app=await mount('<html><body><main><img id="hero" src="https://img.kwcdn.com/hero.jpg"><img id="badge" src="https://img.kwcdn.com/badge.jpg" alt="Temu"></main></body></html>',{rect:img=>img.id==='badge'?{left:270,top:280,right:370,bottom:380,width:100,height:100}:{left:20,top:30,right:620,bottom:630,width:600,height:600},front:(document,x,y)=>[document.getElementById(x>=270&&x<=370&&y>=280&&y<=380?'badge':'hero'),document.querySelector('main')]});
+  assert.equal(app.shadow.querySelectorAll('button').length,1);app.shadow.querySelector('button').click();assert.equal(app.messages[0].selection.imageUrl,'https://img.kwcdn.com/hero.jpg');
 });
 test('an extension context invalidated synchronously on click shows a refresh instruction instead of throwing silently',async()=>{
   const app=await mount('<html><body><main><img src="https://img.kwcdn.com/a.jpg" alt="Actual gloves"></main></body></html>',{send:()=>{throw Error('Extension context invalidated.');}});

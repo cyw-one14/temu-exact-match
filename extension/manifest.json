@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TEMU 完全同款助手",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "description": "自动提取商品主体并比对同款，读取 TEMU 美国站真实价格与原始标题，同时提供销量及来源关键词。",
   "minimum_chrome_version": "116",
   "permissions": [

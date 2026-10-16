@@ -12,15 +12,20 @@
   const usableTitle=value=>{const title=clean(value);return title&&!/^(?:temu|(?:temu\s+)?logo|avatar|image|photo|picture|product(?: image| photo)?|商品图片|产品图片|图片|主图|thumbnail)(?:\s*\d+)?$/i.test(title)?title.slice(0,400):'';};
   function imageURL(img){try{const url=new URL(img.currentSrc||img.src||img.getAttribute('data-src'),location.href);return url.protocol==='https:'&&!url.username&&!url.password&&(url.hostname.endsWith('.kwcdn.com')||url.hostname.endsWith('.temu.com'))?url.href:'';}catch{return '';}}
   function identity(raw){try{const url=new URL(raw,location.href);if(url.hostname!=='www.temu.com')return '';const id=url.searchParams.get('goods_id')||url.pathname.match(/-g-(\d+)\.html$/)?.[1];return /^\d{6,25}$/.test(id||'')?id:'';}catch{return '';}}
+  function visibleArea(img){const r=img.getBoundingClientRect();return Math.max(0,Math.min(innerWidth,r.right)-Math.max(0,r.left))*Math.max(0,Math.min(innerHeight,r.bottom)-Math.max(0,r.top));}
   function exposed(img){
-    if(!img.isConnected||img.closest('[hidden],[aria-hidden="true"]'))return false;
+    if(!img.isConnected||!img.getClientRects().length||!visibleArea(img)||img.closest('[hidden],[aria-hidden="true"]'))return false;
     if(typeof getComputedStyle==='function')for(let node=img;node&&node.nodeType===1;node=node.parentElement){const style=getComputedStyle(node);if(style.display==='none'||['hidden','collapse'].includes(style.visibility)||style.opacity!==''&&Number(style.opacity)===0)return false;}
     const rect=img.getBoundingClientRect();
     if(typeof document.elementsFromPoint==='function'){
-      const x=(Math.max(0,rect.left)+Math.min(innerWidth,rect.right))/2,y=(Math.max(0,rect.top)+Math.min(innerHeight,rect.bottom))/2;
-      const stack=document.elementsFromPoint(x,y).filter(node=>node!==host&&!host.contains(node));
-      const frontImage=stack.find(node=>node.matches?.('img'));
-      if(frontImage&&frontImage!==img)return false;
+      const left=Math.max(0,rect.left),top=Math.max(0,rect.top),width=Math.min(innerWidth,rect.right)-left,height=Math.min(innerHeight,rect.bottom)-top;
+      // A small badge at the center must not hide the whole hero. A fully
+      // covered carousel slide still fails every sample and stays excluded.
+      return [[.5,.5],[.2,.2],[.8,.2],[.2,.8],[.8,.8]].some(([x,y])=>{
+        const stack=document.elementsFromPoint(left+width*x,top+height*y).filter(node=>node!==host&&!host.contains(node));
+        const frontImage=stack.find(node=>node.matches?.('img'));
+        return !frontImage||frontImage===img;
+      });
     }
     return true;
   }
@@ -31,7 +36,7 @@
     }
     return null;
   }
-  function selection(img,declarations=new Map()){
+  function selection(img,declarations=new Map(),heroes=new Map()){
     const imageUrl=imageURL(img);if(!imageUrl||/^(?:temu|(?:temu\s+)?logo|avatar)$/i.test((img.alt||'').trim()))return null;
     let productId='',productIdSource='',root=img.parentElement;
     const current=identity(location.href),anchor=img.closest('a[href]');
@@ -41,11 +46,23 @@
     if(!productId&&bound.length===1){productId=bound[0].productId;productIdSource='declared-product-image';}
     const main=img.closest('main,[role="main"]')||(current?document.body:null);
     if(!productId&&current&&main){
+      const pageImage=new URL(location.href).searchParams.get('top_gallery_url');
+      if(pageImage&&asset(pageImage)===asset(imageUrl)){productId=current;productIdSource='current-page-image';root=main;}
+    }
+    if(!productId&&current&&main){
       const gallery=img.closest('[data-product-gallery],[aria-label="Product images"]');
-      const largest=[...main.querySelectorAll('img')].filter(node=>imageURL(node)&&exposed(node)&&!node.closest('a[href]')).sort((a,b)=>{const x=a.getBoundingClientRect(),y=b.getBoundingClientRect();return y.width*y.height-x.width*x.height;})[0];
+      if(!heroes.has(main))heroes.set(main,[...main.querySelectorAll('img')].filter(node=>{
+        if(!imageURL(node)||!exposed(node))return false;
+        const link=node.closest('a[href]');
+        // A link to the image itself opens a zoom view, not another product.
+        return !link||!identity(link.href)&&asset(link.href)===asset(imageURL(node));
+      }).sort((a,b)=>visibleArea(b)-visibleArea(a))[0]);
+      const largest=heroes.get(main);
       if(gallery||largest===img){productId=current;productIdSource='current-product-gallery';root=main;}
     }
-    for(let node=img,step=0;node&&node!==document.body&&step<6;node=node.parentElement,step++){
+    // An unrelated link is not a product card; do not borrow a sibling's ID.
+    if(!productId&&anchor)return null;
+    for(let node=img,step=0;node&&node!==document.body&&!node.matches('main,[role="main"]')&&step<6;node=node.parentElement,step++){
       if(productId)break;
       const ids=[...new Set([...node.querySelectorAll('a[href]')].map(a=>identity(a.href)).filter(Boolean))];
       if(ids.length>1)break;if(ids.length===1){productId=ids[0];productIdSource='scoped-product-card';root=node;break;}
@@ -96,13 +113,13 @@
   }
   function refresh(){
     scheduled=false;const keep=new Set();
-    const declarations=globalThis.temuDeclaredProducts?.()||new Map();
+    const declarations=globalThis.temuDeclaredProducts?.()||new Map(),heroes=new Map();
     if(enabled&&!/bgn_verification/.test(location.pathname))for(const img of document.querySelectorAll('img')){
       if(keep.size>=80)break;
       const rect=img.getBoundingClientRect();
       if(rect.width<90||rect.height<80||rect.bottom<12||rect.top>innerHeight-20||rect.right<12||rect.left>innerWidth-30||!img.getClientRects().length)continue;
       if(!exposed(img))continue;
-      const value=selection(img,declarations);if(!value)continue;keep.add(img);
+      const value=selection(img,declarations,heroes);if(!value)continue;keep.add(img);
       let button=buttons.get(img);
       if(!button){button=document.createElement('button');button.type='button';button.textContent='查同款';button.title='完全同款助手 · 用这张图片查同款';button.setAttribute('aria-label','查询此商品图片的完全同款');
         button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();pick(img,button);});
