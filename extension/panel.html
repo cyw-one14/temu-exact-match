@@ -7,7 +7,7 @@
   <section class="upload-section">
     <label for="upload" class="upload-label"><span class="upload-symbol">＋</span><strong>上传产品图片</strong><span>PNG / JPG / WebP · 最大 8 MB</span><input id="upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
     <div id="reference" class="reference" hidden><img id="reference-image" alt="用户上传的产品"><div><strong id="reference-name">待识别产品</strong><p id="reference-description"></p><button id="replace-image" class="quiet" type="button">更换图片</button></div></div>
-    <details class="specifications"><summary>页面信息 · 自动读取 / 可选备注</summary><p class="hint">先按标题相似与不相似分组，两组都核对主体。主体一致即同款；仅标题相似组在主体未匹配时，可按主体颜色相近归为同款。数量、尺寸等规格差异只作附注。</p><div class="spec-grid">
+    <details class="specifications"><summary>页面信息 · 自动读取 / 可选备注</summary><p class="hint">先按标题分组，两组都核对主体；仅标题相似组可在主体未匹配后补充颜色判断。仍无法确认时，两组均比较主体轮廓，重合与边界指标均达90%按轮廓补充同款处理，并保留依据。数量、尺寸等只作附注。</p><div class="spec-grid">
       <label>品牌<input id="spec-brand" placeholder="如有标注，请照实填写"></label>
       <label>型号<input id="spec-model" placeholder="如 A123"></label>
       <label>材质<input id="spec-material" placeholder="使用站内英文规格更易核对"></label>
@@ -40,11 +40,11 @@
   </section>
   <section id="keyword-section" hidden>
     <div class="section-header"><h2>销量 Top10 · 每链接关键词</h2><span id="keyword-caption">每组前 10 款</span></div>
-    <p class="hint">从已读取、按当前规则判定的同款中，每个国家站 / 来源 / 周期分别取页面销量前 10 款。逐链接保留关键词原文与证据，注明主体一致或主体颜色补充；标题原词不代表关键词自身的搜索量或转化率。</p>
+    <p class="hint">从已读取、按当前规则判定的同款中，每个国家站 / 来源 / 周期分别取页面销量前10款。逐链接保留关键词原文与证据，区分主体一致、颜色补充或轮廓补充；标题原词不代表关键词自身的搜索量或转化率。</p>
     <div id="keywords" class="keywords"></div>
     <details><summary>手动检索词</summary><p class="hint">可使用上方商品原词，或自行填写检索词。</p><div id="retrieval-keywords" class="keywords"></div><div class="manual-search"><label for="manual-keyword" class="visually-hidden">手动填写搜索词</label><input id="manual-keyword" placeholder="手动填写搜索词"><button id="add-keyword" type="button">添加</button></div><button id="search-keywords" type="button">检索已选关键词</button></details>
   </section>
-  <footer>两组标题均核对主体；颜色补充仅适用于标题相似组。价格、标题和链接来自页面；SKU、优惠条件和结算价可能不同。</footer>
+  <footer>两组标题均核对主体；颜色补充仅限相似标题，仍无法确认时再比较主体轮廓。价格、标题和链接来自页面；SKU、优惠条件和结算价可能不同。</footer>
 </main>
 <script type="module" src="panel.js"></script>
 </body></html>

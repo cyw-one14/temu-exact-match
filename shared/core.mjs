@@ -68,7 +68,7 @@ export function decideExact(comparison, referenceSpecs = {}, candidateText = '')
   return { status:'exact', reason:'图片 / 外观与已提供规格均核对一致', missing:[] };
 }
 
-export function isProductMatch(item){return ['exact','visual-match','rule-match','inferred-match'].includes(item?.status);}
+export function isProductMatch(item){return ['exact','visual-match','rule-match','outline-match','inferred-match'].includes(item?.status);}
 
 // Only explicit, unambiguous title counts. Multi-SKU titles remain unknown.
 export function titleQuantity(title){
@@ -133,6 +133,8 @@ export function decideProductMatch(comparison,referenceSpecs={},candidateText=''
   // Unstructured differences can contain listing text, so they never veto it.
   const imageDifferences=(comparison?.visualChecks||[]).filter(check=>['shape','construction','color','pattern','logo','accessories'].includes(check?.key)&&check.status==='different'&&String(check.evidence||'').trim().length>=4).map(check=>String(check.evidence));
   const colorRule=comparison?.listingColorMatch?.matched===true&&comparison.listingColorMatch.titleEvidence?.revision==='literal-title-v2'&&comparison.listingColorMatch.titleEvidence.group==='similar'&&comparison.listingColorMatch.subjectReview?.completed===true&&comparison.listingColorMatch.subjectReview.matched===false;
+  const outline=comparison?.outlineMatch;
+  const outlineRule=outline?.revision==='subject-outline-v1'&&outline.valid===true&&outline.matched===true&&outline.priorStatus==='pending'&&outline.subjectReview?.completed===true&&outline.subjectReview.matched===false&&Number.isFinite(outline.iou)&&outline.iou>=.90&&outline.iou<=1&&Number.isFinite(outline.boundaryCoverage)&&outline.boundaryCoverage>=.90&&outline.boundaryCoverage<=1;
   if((comparison?.visual==='different'||imageDifferences.length)&&!colorRule)return {status:'different',packDifference:null,listingDifferences:[],reason:'图片商品主体存在差异',differences:imageDifferences.length?imageDifferences:comparison?.differences||[],missing:[]};
   const imageComparison={...comparison,differences:[],checks:(comparison?.checks||[]).map(check=>check.status==='different'?{...check,status:'unknown'}:check)};
   const strict=decideExact(imageComparison,referenceSpecs,candidateText);
@@ -155,6 +157,7 @@ export function decideProductMatch(comparison,referenceSpecs={},candidateText=''
   const visualConfirmed=['same_photo','identical'].includes(comparison?.visual)||comparison?.subject?.matched===true||comparison?.fastMatch?.matched===true||comparison?.instanceMatch?.matched===true;
   if(visualConfirmed)return {status:'visual-match',matchTier:'appearance',differences:[],packDifference,listingDifferences,reason:'图片商品主体一致；文字信息只作参考',missing:[...new Set([...strict.missing.filter(value=>value!=='外观细节一致性'),...candidate.conflicts.map(key=>SPEC_LABELS[key]+'存在多个页面值，具体 SKU 未绑定'),...wording])]};
   if(colorRule)return {status:'rule-match',matchTier:'title-subject-color',differences:[],subjectDifferences:imageDifferences.length?imageDifferences:comparison?.differences||[],packDifference,listingDifferences,reason:'标题相似且主体颜色相近；主体核对未匹配后按用户规则归为同款',missing:[...new Set(['主体细节未匹配，使用标题相似组的主体颜色补充规则',...strict.missing,...wording])]};
+  if(outlineRule)return {status:'outline-match',matchTier:'subject-outline',differences:[],packDifference,listingDifferences,reason:'主体轮廓相似；无法确认后按用户轮廓补充规则归为同款',missing:[...new Set(['主体细节尚未确认，使用轮廓补充规则；轮廓相似度不是同款概率',...strict.missing,...wording])]};
   return {...strict,status:'pending',differences:[],packDifference,listingDifferences,reason:'图片商品主体尚未确认，保留待核对',missing:[...new Set([...strict.missing,...wording])]};
 }
 

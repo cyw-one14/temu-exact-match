@@ -5,7 +5,7 @@ import {parseHTML} from 'linkedom';
 const {document,window}=parseHTML(await readFile(new URL('../extension/panel.html',import.meta.url),'utf8'));
 globalThis.document=document;globalThis.window=window;
 const items=Array.from({length:175},(_,i)=>({id:String(601123456780000+i),title:'Captured test listing '+i,url:'https://www.temu.com/goods.html?goods_id='+String(601123456780000+i),imageUrl:'https://img.kwcdn.com/test-'+i+'.jpg',salesSource:'provider-visible',status:'different',autoAttempt:1,subjectAttempt:1}));
-const saved={referenceImage:'https://img.kwcdn.com/test-reference.jpg',referenceSpecs:{},matchRevision:1,matchingPolicy:'title-groups-v15',keywordPolicy:'best-sellers-v1',items,pages:[],collection:{source:'provider',status:'running',total:175,productIds:items.map(item=>item.id),pageKeys:['test-page']}};
+const saved={referenceImage:'https://img.kwcdn.com/test-reference.jpg',referenceSpecs:{},matchRevision:1,matchingPolicy:'title-groups-outline-v16',keywordPolicy:'best-sellers-v1',items,pages:[],collection:{source:'provider',status:'running',total:175,productIds:items.map(item=>item.id),pageKeys:['test-page']}};
 let lastSaved,page={pageUrl:'https://www.temu.com/search_result.html?search_key=test',products:items.map(item=>({...item,id:item.id+'9'})),navigation:{supported:true,queryKey:'test',pageKey:'test-page-2'}};
 const messages=[],requests=[];
 globalThis.chrome={windows:{getCurrent:async()=>({id:1})},storage:{session:{get:async()=>({'temuMatch:1':saved}),set:async value=>{lastSaved=value['temuMatch:1'];}},local:{get:async()=>({})},onChanged:{addListener:()=>{}}},runtime:{sendMessage:async message=>{messages.push(message);return {ok:true,data:page};}},tabs:{query:async()=>[{id:1}]}};

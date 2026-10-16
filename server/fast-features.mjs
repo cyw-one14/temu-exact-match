@@ -45,6 +45,9 @@ export async function comparePreparedInstances(template,candidate,attention=null
   return featureJob({operation:'instance-match',template:template.toString('base64'),candidate:candidate.toString('base64'),...(attention?{templateAttention:attention}:{})});
 }
 export async function compareReferenceShape(template,candidate){return featureJob({operation:'reference-shape',template:template.toString('base64'),candidate:candidate.toString('base64')});}
+export async function comparePreparedOutlines(template,candidate,attention={}){
+  return featureJob({operation:'outline-match',template:template.toString('base64'),candidate:candidate.toString('base64'),...attention});
+}
 export async function instanceFeatureCompare(reference,candidate,referenceText=''){
   await prepareFastFeatures();
   const descriptor=await subjectDescriptor(reference);

@@ -9,7 +9,7 @@ const $=id=>document.getElementById(id);
 const SERVICE='http://127.0.0.1:43187';
 const windowId=(await chrome.windows.getCurrent()).id;
 const stateKey='temuMatch:'+windowId,selectionKey='temuSelection:'+windowId;
-const MATCHING_POLICY='title-groups-v15';
+const MATCHING_POLICY='title-groups-outline-v16';
 const emptyState=()=>({matchingPolicy:MATCHING_POLICY,matchRevision:1,referenceContext:null,keywordPolicy:'best-sellers-v1',referenceImage:'',referenceSpecs:{},profile:null,keywords:[],keywordSources:{},selectedQueries:[],items:[],pages:[],lastRun:null,selection:null,providerJob:null,collection:null,collectionHistory:[]});
 let state=emptyState();
 let busy=false,cancelled=false,healthTimer=null;
@@ -68,7 +68,7 @@ function renderKeywords(){
     for(const product of group.products){
       const entry=node('article','seller-entry');entry.dataset.productId=product.id;
       const link=node('a','product-name','第 '+product.salesRank+' 款 · '+product.title);link.href=product.url;link.target='_blank';link.rel='noopener noreferrer';entry.append(link);
-      entry.append(node('p','hint',(product.price?.raw||product.priceText||'价格未读取')+' · '+product.sales.raw+' · '+(product.status==='rule-match'?'主体颜色补充同款':'主体一致同款')));
+      entry.append(node('p','hint',(product.price?.raw||product.priceText||'价格未读取')+' · '+product.sales.raw+' · '+(product.status==='outline-match'?'主体轮廓补充同款':product.status==='rule-match'?'主体颜色补充同款':'主体一致同款')));
       entry.append(keywordEvidenceBlock(product.keywordEvidence,true));section.append(entry);
     }
     container.append(section);
@@ -136,12 +136,17 @@ function card(item,lead=false){
   info.append(node('p','hint',priceKindLabel(price)+(price.currency?' · '+price.currency:' · 币种未确认')+' · 尚未绑定具体 SKU / 优惠条件'));
   const meta=node('div','product-meta');
   meta.append(node('span','',item.sales?.raw||'销量未展示'));info.append(meta);
-  const badge=item.status==='rule-match'?'同款 · 标题相似 / 主体颜色相近':item.status==='inferred-match'?'旧版推定结果 · 等待重新核对':item.status==='exact'?'同款 · 图片主体一致 · 自动确认':item.status==='visual-match'?(item.matchStage==='page-image'?'同款 · 同图匹配 · 自动确认':item.instanceMatch?.matched?'同款本体 · 图中完整实例已核验':item.fastMatch?.matched?'同款 · 主体一致 · 快速图像核验':'同款 · 主体一致 · 自动核对'):item.status==='different'?'已排除 · '+(item.reason||'图片主体存在差异'):item.autoAttempt===state.matchRevision?'无法自动确认 · 不参与推荐':'等待工具自动核对';
+  const badge=item.status==='outline-match'?'同款 · 主体轮廓相似 · 轮廓补充':item.status==='rule-match'?'同款 · 标题相似 / 主体颜色相近':item.status==='inferred-match'?'旧版推定结果 · 等待重新核对':item.status==='exact'?'同款 · 图片主体一致 · 自动确认':item.status==='visual-match'?(item.matchStage==='page-image'?'同款 · 同图匹配 · 自动确认':item.instanceMatch?.matched?'同款本体 · 图中完整实例已核验':item.fastMatch?.matched?'同款 · 主体一致 · 快速图像核验':'同款 · 主体一致 · 自动核对'):item.status==='different'?'已排除 · '+(item.reason||'图片主体存在差异'):item.autoAttempt===state.matchRevision?'无法自动确认 · 不参与推荐':'等待工具自动核对';
   info.append(node('span','badge',badge));top.append(info);article.append(top);
   article.append(node('p','product-note',(item.salesSource==='provider-visible'?'来源：特卖数据图搜':'来源：TEMU 页面')+' · '+(item.market==='us'?'美国站':'国家站尚未核实')+' · '+periodText(item.sales)+' · 采集 '+new Date(item.capturedAt).toLocaleString('zh-CN')));
   if(price.sourceUrl)article.append(node('p','product-note','价格来源：'+(price.source==='provider-visible'?'特卖数据页面':'TEMU 商品页')+' · '+new Date(price.capturedAt).toLocaleString('zh-CN')));
   if(item.status==='visual-match')article.append(node('p','hint',item.variantAmbiguous||state.referenceContext?.variantAmbiguous?'图片主体匹配；商品含多个 SKU，尺寸 / 套装与对应价格未绑定。':'图片主体匹配；未展示的品牌 / 尺寸 / 材质 / 数量单独保留未知。'));
   if(item.status==='rule-match')article.append(node('p','hint','主体细节未匹配；已完成主体核对，按“标题相似且主体颜色相近”的补充规则归为同款。价格、标题和链接保留页面原文。'));
+  if(item.status==='outline-match'){
+    const outline=item.outlineMatch;
+    article.append(node('p','hint','主体细节尚未确认，按用户“主体轮廓相似”补充规则归为同款。轮廓指标不是同款概率；原图、原标题和价格保留。'));
+    if(outline)article.append(node('p','product-note','轮廓交并比 '+Math.round(outline.iou*100)+'% · 边界覆盖 '+Math.round(outline.boundaryCoverage*100)+'%（两项门槛均为90%） · '+(outline.orientation?.mirror?'镜像后':'')+'旋转 '+(outline.orientation?.rotation||0)+'°'));
+  }
   if(item.packDifference)article.append(node('p','hint','售卖数量不同：参考 '+item.packDifference.reference+'，此链接 '+item.packDifference.candidate+'。保留该链接的原页面价格，具体 SKU 未绑定，未折算单件价。'));
   if(item.salesSource==='provider-visible'&&item.sales?.kind==='unknown')article.append(node('p','hint','该商品未展示所选销量周期，不使用其他周期补齐。'));
   const listing=listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt});
@@ -212,7 +217,8 @@ function render(){
   $('results-section').hidden=!state.items.length&&!state.lastRun;
   const exact=rankMatches(state.items),pending=state.items.filter(item=>!isProductMatch(item)&&item.status!=='different'),different=state.items.filter(item=>item.status==='different');
   const colorRuleCount=exact.filter(item=>item.status==='rule-match').length;
-  $('count').textContent=exact.length+' 个同款匹配'+(colorRuleCount?'（'+colorRuleCount+' 个主体颜色补充）':'');
+  const outlineCount=exact.filter(item=>item.status==='outline-match').length;
+  $('count').textContent=exact.length+' 个同款匹配'+(colorRuleCount?'（'+colorRuleCount+' 个主体颜色补充）':'')+(outlineCount?'（'+outlineCount+' 个主体轮廓补充）':'');
   $('scope').textContent='已读取 '+state.items.length+' 个商品 · 本次最多 '+COLLECTION_LIMIT+' 条 · '+state.pages.length+' 个页面 · 全站总量未知；国家站、数据来源和销量周期分别处理。';
   const order=$('result-sort').value||'match';
   const ordered=[...exact].sort((a,b)=>order==='sales'?0:order==='price'?(a.price?.currency==='USD'&&['displayed','range','starting'].includes(a.price.kind)?a.price.low:Infinity)-(b.price?.currency==='USD'&&['displayed','range','starting'].includes(b.price.kind)?b.price.low:Infinity):Number(Boolean(b.samePhoto))-Number(Boolean(a.samePhoto))||Number(b.status==='exact')-Number(a.status==='exact')||(b.imageSimilarity||0)-(a.imageSimilarity||0));
@@ -559,7 +565,7 @@ async function compareItems({automatic=false}={}){
     if(automatic&&state.collection?.status==='running'){requestAutoCompare();return;}
     checkCancelled();processed++;
     item.autoAttempt=state.matchRevision;
-    delete item.subjectAttempt;delete item.instanceMatch;delete item.matchedReferenceImageUrl;delete item.referenceEvidence;delete item.listingColorMatch;
+    delete item.subjectAttempt;delete item.outlineMatch;delete item.instanceMatch;delete item.matchedReferenceImageUrl;delete item.referenceEvidence;delete item.listingColorMatch;
     status('页面图片匹配 '+processed+' / '+candidates.length+'：'+item.title.slice(0,55));
     try{
       const first=await api('/compare',{phase:'page-match',candidateId:item.id,referenceImage:state.referenceImage,referenceImageUrl:state.selection?.imageUrl,referenceSpecs:state.referenceSpecs,imageUrl:item.imageUrl,candidateText:comparisonText(item)});
@@ -593,7 +599,7 @@ async function compareItems({automatic=false}={}){
     status('后续图像核对 '+reviewed+' / '+review.length+'：'+item.title.slice(0,55));
     try{
       const result=await api('/compare',{phase:'subject-review',candidateId:item.id,referenceImage:state.referenceImage,referenceImageUrl:state.selection?.imageUrl,referenceTitle,candidateTitle:item.title,referenceImages:['public-jsonld','bound-current-product-gallery'].includes(state.referenceContext?.imageSource)?state.referenceContext.referenceImages||[]:[],referenceImageSource:state.referenceContext?.imageSource||'',referenceSpecs:state.referenceSpecs,imageUrl:item.imageUrl,candidateImages:item.verifiedImages||[],candidateText:comparisonText(item)});
-      Object.assign(item,result.comparison,{matchSource:'automated'});
+      delete item.outlineMatch;Object.assign(item,result.comparison,{matchSource:'automated'});
       if((item.variantAmbiguous||state.referenceContext?.variantAmbiguous)&&item.status==='exact'){item.status='visual-match';item.missing=['多规格商品，具体 SKU / 对应价格未绑定'];}
     }catch(error){
       if(cancelled)throw error;
@@ -605,7 +611,8 @@ async function compareItems({automatic=false}={}){
   const exact=state.items.filter(isProductMatch).length;
   const different=state.items.filter(item=>item.status==='different').length,unconfirmed=state.items.length-exact-different;
   const colorRuleCount=state.items.filter(item=>item.status==='rule-match').length;
-  status('本批自动核对 '+processed+' 个商品，同款匹配 '+exact+' 个'+(colorRuleCount?'（其中 '+colorRuleCount+' 个主体颜色补充）':'')+' · 未确认 '+unconfirmed+' 个 · 明确不同 '+different+' 个'+(failures?'；'+failures+' 个读取失败，已保留原因':'')+'。两组标题均已安排主体核对；数量和规格仅作附注。');
+  const outlineCount=state.items.filter(item=>item.status==='outline-match').length;
+  status('本批自动核对 '+processed+' 个商品，同款匹配 '+exact+' 个'+(colorRuleCount?'（其中 '+colorRuleCount+' 个主体颜色补充）':'')+(outlineCount?'（其中 '+outlineCount+' 个主体轮廓补充）':'')+' · 未确认 '+unconfirmed+' 个 · 明确不同 '+different+' 个'+(failures?'；'+failures+' 个读取失败，已保留原因':'')+'。两组标题均已安排主体核对；数量和规格仅作附注。');
   if(automatic)requestAutoCompare();
 }
 function comparisonText(item){
@@ -694,7 +701,7 @@ $('settings').addEventListener('click',()=>chrome.runtime.openOptionsPage());
 $('result-sort').addEventListener('change',render);
 $('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('模型正在加载，完成后可以识别图片。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.2.13',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,imageSearchInput:state.providerJob?.submittedInput||null,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,keywordEvidence:isProductMatch(item)&&item.status!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.2.14',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,imageSearchInput:state.providerJob?.submittedInput||null,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,keywordEvidence:isProductMatch(item)&&item.status!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
@@ -712,7 +719,7 @@ try{
     state.collection.productIds=(state.collection.productIds||[]).filter(id=>retained.has(id));state.collection.total=state.collection.productIds.length;state.collection.analysisTotal=state.items.length;state.collection.limit=COLLECTION_LIMIT;
     if(state.items.length>=COLLECTION_LIMIT)pauseCollection(state.collection,'limit-reached');else if(state.collection.status==='running')pauseCollection(state.collection,'panel-closed');
   }
-  if(saved&&saved.matchingPolicy!==MATCHING_POLICY){state.matchingPolicy=MATCHING_POLICY;for(const item of state.items){item.status='unreviewed';item.matchSource=null;item.evidence=[];item.missing=[];item.differences=[];delete item.subject;delete item.fastMatch;delete item.instanceMatch;delete item.matchedReferenceImageUrl;delete item.referenceEvidence;delete item.titleEvidence;delete item.listingColorMatch;delete item.subjectReview;delete item.subjectDifferences;delete item.visualChecks;delete item.checks;delete item.listingDifferences;delete item.packDifference;delete item.priorityScore;delete item.pageImagePriority;delete item.matchStage;delete item.subjectAttempt;delete item.autoAttempt;}}
+  if(saved&&saved.matchingPolicy!==MATCHING_POLICY){state.matchingPolicy=MATCHING_POLICY;for(const item of state.items){item.status='unreviewed';item.matchSource=null;item.evidence=[];item.missing=[];item.differences=[];delete item.subject;delete item.outlineMatch;delete item.fastMatch;delete item.instanceMatch;delete item.matchedReferenceImageUrl;delete item.referenceEvidence;delete item.titleEvidence;delete item.listingColorMatch;delete item.subjectReview;delete item.subjectDifferences;delete item.visualChecks;delete item.checks;delete item.listingDifferences;delete item.packDifference;delete item.priorityScore;delete item.pageImagePriority;delete item.matchStage;delete item.subjectAttempt;delete item.autoAttempt;}}
 }catch{}
 chrome.storage.onChanged.addListener((changes,area)=>{if(area==='session'&&changes[selectionKey]?.newValue)acceptSelection(changes[selectionKey].newValue);});
 render();

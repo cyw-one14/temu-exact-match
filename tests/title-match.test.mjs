@@ -64,3 +64,30 @@ test('foreground color evidence is separate from identity; unavailable masks can
   const colors=Array(64).fill(0);colors[12]=1;
   assert.equal(foregroundColorEvidence({valid:true,colors},{valid:true,colors}).similarity,1);assert.equal(foregroundColorEvidence({valid:false,colors},{valid:true,colors}).valid,false);
 });
+
+const outline=()=>({revision:'subject-outline-v1',valid:true,matched:true,iou:.95,boundaryCoverage:.96,similarity:.95,reason:'TEST captured silhouette match'});
+test('every title group can use outlines only after unsuccessful subject review and any eligible color fallback',async()=>{
+  for(const titleEvidence of [similar(),different(),titleMatchEvidence('','')]){
+    const events=[];const result=await groupedProductReview({titleEvidence,review:async()=>{events.push('subject');return {status:'pending',visual:'uncertain'};},colors:async()=>{events.push('color');return {valid:true,similarity:.4};},outlines:async()=>{events.push('outline');return outline();}});
+    assert.deepEqual(events,titleEvidence.group==='similar'?['subject','color','outline']:['subject','outline']);assert.equal(result.status,'outline-match');assert.equal(result.outlineMatch.subjectReview.completed,true);assert.equal(result.outlineMatch.priorStatus,'pending');
+    const item={...result,id:'shape',title:'Original captured glove phrase',url:'https://www.temu.com/goods.html?goods_id=601123456789001',sales:parseSales('200 sold'),market:'us'};
+    assert.equal(rankMatches([item]).length,1);assert.equal(bestSellerKeywords([item])[0].products[0].keywordEvidence[0].matchStatus,'outline-match');
+  }
+});
+test('outline fallback does not replace confirmed matches, a passing color rule, explicit image differences or a failed review',async()=>{
+  let calls=0;const outlines=async()=>{calls++;return outline();};
+  for(const review of [async()=>({status:'visual-match',subject:{matched:true}}),async()=>({status:'different',visual:'different'}),async()=>({status:'pending',visual:'different'}),async()=>({status:'pending',visualChecks:[{key:'construction',status:'different',evidence:'clear product structure difference'}]})])await groupedProductReview({titleEvidence:different(),review,outlines});
+  const color=await groupedProductReview({titleEvidence:similar(),review:async()=>({status:'pending'}),colors:async()=>({valid:true,similarity:.99}),outlines});assert.equal(color.status,'rule-match');
+  await assert.rejects(groupedProductReview({titleEvidence:different(),review:async()=>{throw Error('no completed review');},outlines}));assert.equal(calls,0);
+});
+test('invalid or low outline metrics retain pending; shape failures stay explainable and cannot bypass explicit differences',async()=>{
+  for(const value of [{...outline(),valid:false},{...outline(),iou:.89},{...outline(),boundaryCoverage:.5},{...outline(),iou:Infinity}]){
+    const result=await groupedProductReview({titleEvidence:different(),review:async()=>({status:'pending',visual:'uncertain'}),outlines:async()=>value});assert.equal(result.status,'pending');
+  }
+  const failed=await groupedProductReview({titleEvidence:different(),review:async()=>({status:'pending'}),outlines:async()=>{throw Error('mask unavailable');}});assert.equal(failed.status,'pending');assert.equal(failed.outlineMatch.valid,false);
+  const evidence={...outline(),priorStatus:'pending',subjectReview:completed};
+  assert.equal(decideProductMatch({outlineMatch:evidence}).status,'outline-match');
+  assert.equal(decideProductMatch({outlineMatch:{...evidence,subjectReview:{completed:false}}}).status,'pending');
+  assert.equal(decideProductMatch({outlineMatch:evidence,visual:'different'}).status,'different');
+  assert.equal(decideProductMatch({outlineMatch:evidence,visualChecks:[{key:'shape',status:'different',evidence:'clearly different silhouette'}]}).status,'different');
+});

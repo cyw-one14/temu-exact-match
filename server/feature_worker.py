@@ -183,7 +183,10 @@ if __name__ == '__main__':
     for line in sys.stdin:
         try:
             data = json.loads(line)
-            if data.get('operation') == 'reference-shape':
+            if data.get('operation') == 'outline-match':
+                from outline_match import compare_outlines
+                result = compare_outlines(data['template'], data['candidate'], decode, data.get('templateAttention'), data.get('candidateAttention'))
+            elif data.get('operation') == 'reference-shape':
                 from instance_match import compatible_shape
                 result = compatible_shape(data['template'],data['candidate'],decode)
             elif data.get('operation') == 'instance-match':

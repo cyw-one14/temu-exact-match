@@ -9,6 +9,7 @@ import {fastFeatureState,prepareFastFeatures,closeFastFeatures,compareReferenceS
 import {isProductMatch,listingSpecs} from '../shared/core.mjs';
 import {titleMatchEvidence} from '../shared/title-match.mjs';
 import {groupedProductReview} from './match-flow.mjs';
+import {compareForegroundOutlines} from './outline-match.mjs';
 import {attentionState} from './product-attention.mjs';
 import {recordSubjectResult} from './match-diagnostics.mjs';
 
@@ -79,7 +80,7 @@ export const server=http.createServer(async(req,res)=>{
     }
     res.setHeader('Content-Type','application/json; charset=utf-8');
     if(req.method==='GET' && path==='/health'){
-      res.end(JSON.stringify({ok:true,version:manifest.version,matchingPolicy:'title-groups-v15',engine:config.engine,configured:config.engine==='local'||Boolean(config.apiKey),model:subjectState,productAttention:attentionState,fastFeatures:fastFeatureState,diagnosticModel:modelState,extensionId}));return;
+      res.end(JSON.stringify({ok:true,version:manifest.version,matchingPolicy:'title-groups-outline-v16',engine:config.engine,configured:config.engine==='local'||Boolean(config.apiKey),model:subjectState,productAttention:attentionState,fastFeatures:fastFeatureState,diagnosticModel:modelState,extensionId}));return;
     }
     if((!accepted&&!sameOriginRead) || req.headers['x-temu-client']!=='exact-match')throw Object.assign(new Error('请从插件或本机设置页面访问'),{status:403});
     if(req.method==='GET' && path==='/config'){
@@ -165,6 +166,9 @@ export const server=http.createServer(async(req,res)=>{
       const result=await groupedProductReview({titleEvidence,review,referenceSpecs:specs,candidateText:text,colors:async reviewed=>{
         const selected=reviewed.matchedImageUrl===body.imageUrl?candidate:await downloadImage(reviewed.matchedImageUrl);
         return serial(()=>compareForegroundColors(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text}));
+      },outlines:async reviewed=>{
+        const selected=reviewed.matchedImageUrl===body.imageUrl?candidate:await downloadImage(reviewed.matchedImageUrl);
+        return serial(()=>compareForegroundOutlines(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text}));
       }});
       if(PORT===43187)await recordSubjectResult(body,reference,candidate.buffer,result);
       res.end(JSON.stringify({ok:true,comparison:result}));return;
