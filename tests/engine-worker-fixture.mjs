@@ -4,6 +4,7 @@ export function installEngineWorkerFixture(){
   globalThis.Worker=class{
     constructor(){this.controllers=new Set();this.closed=false;}
     postMessage({id,path,body}){
+      if(path==='/prefetch'){queueMicrotask(()=>{if(!this.closed)this.onmessage?.({data:{id,result:{ok:true}}});});return;}
       const controller=new AbortController();this.controllers.add(controller);
       Promise.resolve().then(async()=>{
         const response=await fetch('http://127.0.0.1:43187'+path,{method:body?'POST':'GET',...(body?{body:JSON.stringify(body)}:{}),signal:controller.signal});

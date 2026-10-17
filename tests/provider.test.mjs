@@ -22,6 +22,24 @@ test('visible per-product brand/model/spec columns survive capture and normaliza
   assert.equal(item.listingFields.find(field=>field.label==='Brand').value,'Actual Brand');assert.equal(item.listingFields.find(field=>field.label==='Model').value,'G22');assert.equal(item.priceText,'$13.13');
   assert.equal(item.listingFields.some(field=>field.value==='Other Brand'),false);
 });
+
+test('multiple products inside one table row retain their own image, title and prices without copying shared row sales',()=>{
+  const page=extract('<html><body><table><thead><tr><th>商品信息</th><th>销量</th></tr></thead><tbody><tr><td><a class="list-item" href="https://www.temu.com/goods.html?goods_id=601123456789001"><img src="https://img.kwcdn.com/glove.jpg"><div class="title">Actual gloves</div><div class="price">$5.99</div></a><a class="list-item" href="https://www.temu.com/goods.html?goods_id=601123456789002"><img src="https://img.kwcdn.com/gauge.jpg"><div class="title">Actual gauge</div><div class="price">$11.39</div></a></td><td>9000</td></tr></tbody></table></body></html>');
+  const products=normalizeProviderPage(page).products;
+  assert.equal(products[0].imageUrl,'https://img.kwcdn.com/glove.jpg');assert.equal(products[1].imageUrl,'https://img.kwcdn.com/gauge.jpg');
+  assert.equal(products[1].title,'Actual gauge');assert.equal(products[1].priceText,'$11.39');assert.equal(products[1].sales.lowerBound,null);assert.doesNotMatch(products[1].rawText,/Actual gloves|9000/);
+});
+
+test('the active normal result list excludes promotional and recommendation products outside it',()=>{
+  const card=(id,name)=>'<a class="list-item" href="https://www.temu.com/goods.html?goods_id='+id+'"><img src="https://img.kwcdn.com/'+name+'.jpg"><div class="title">'+name+'</div></a>';
+  const page=extract('<html><body><a class="search-ad" href="https://www.temu.com/goods.html?goods_id=601123456789003"><img src="https://img.kwcdn.com/ad.jpg">Professional promotion</a><div class="1688-search"><div class="list-wrap">'+card('601123456789001','Actual result')+'</div></div><section data-recommendation>'+card('601123456789002','Unrelated recommendation')+'</section></body></html>');
+  assert.equal(page.products.length,1);assert.equal(page.products[0].id,'601123456789001');assert.equal(page.captureScope,'active-temu-result-list');
+});
+
+test('CAD screenshot prices remain CAD even with US page context and never silently become USD',()=>{
+  const [item]=normalizeProviderPage(extract('<html><body>当前站点：美国<a class="list-item" href="https://www.temu.com/goods.html?goods_id=601123456789001"><img src="https://img.kwcdn.com/a.jpg"><div class="title">Actual captured title</div><div class="price">CA$CA$3.77</div></a></body></html>')).products;
+  assert.equal(item.priceText,'CA$3.77');assert.equal(item.price.currency,'CAD');assert.equal(item.price.low,3.77);
+});
 test('provider navigation encodes image URLs without sending base64 or guessing region codes',()=>{
   const url=new URL(providerSearchURL({imageUrl:'https://img.kwcdn.com/a.jpg?x=1&y=2',productId:'601123456789001',title:'A & B'}));
   assert.equal(url.searchParams.get('url'),'https://img.kwcdn.com/a.jpg?x=1&y=2');assert.equal(url.searchParams.get('title'),'A & B');assert.equal(url.searchParams.has('region'),false);

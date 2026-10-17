@@ -12,3 +12,10 @@ test('page price ranges and conditional amounts retain their meaning instead of 
   assert.equal(priceObservation('USD 3.76 – USD 4.85').kind,'range');
   assert.equal(priceObservation('').low,null);
 });
+
+test('explicit Canadian and Australian prices retain their amounts and cannot inherit a US-market or declared USD label',()=>{
+  for(const [raw,currency,low,high] of [['CA$3.77','CAD',3.77,3.77],['CAD 3.77 – CAD 5.30','CAD',3.77,5.30],['AU$4.99 – AU$6.25','AUD',4.99,6.25],['AUD 7.50','AUD',7.5,7.5]]){
+    const price=priceObservation(raw,{market:'us',currency:'USD'});assert.equal(price.currency,currency);assert.equal(price.low,low);assert.equal(price.high,high);assert.equal(price.raw,raw);
+  }
+  assert.equal(priceObservation('€4.50',{currency:'USD'}).currency,'EUR');
+});

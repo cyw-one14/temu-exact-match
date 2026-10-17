@@ -416,7 +416,7 @@ test('Top10 renders ranked product links and per-link evidence, updates without 
   providerFixture={...providerFixture,capturedAt:'2026-10-10T04:00:00Z'};document.getElementById('read-provider').click();await settle();assert.equal(comparisonRequests,beforeRequests);assert.equal(leaderSaved.productKeywords.length,1);
   let exportedBlob;const oldCreate=URL.createObjectURL,oldRevoke=URL.revokeObjectURL;
   URL.createObjectURL=blob=>{exportedBlob=blob;return 'blob:fixture';};URL.revokeObjectURL=()=>{};
-  try{document.getElementById('export').click();const data=JSON.parse(await exportedBlob.text());assert.equal(data.version,'0.3.0');assert.equal(data.keywordTopCount,10);assert.equal(data.keywords[0].products.length,10);assert.equal(data.products.length,13);assert.equal(data.keywords[0].products[0].keywordEvidence[0].query,'Late seller phrase');assert.equal(data.products.find(p=>p.id===products[11].id).keywordEvidence[0].capturedAt,'2026-10-10T03:00:00Z');assert.equal(data.imageSearchInput.imageUrl,imageUrl);assert.equal(data.imageSearchInput.title,'Top10 fixture reference');}finally{URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;}
+  try{document.getElementById('export').click();const data=JSON.parse(await exportedBlob.text());assert.equal(data.version,'0.3.1');assert.equal(data.keywordTopCount,10);assert.equal(data.keywords[0].products.length,10);assert.equal(data.products.length,13);assert.equal(data.keywords[0].products[0].keywordEvidence[0].query,'Late seller phrase');assert.equal(data.products.find(p=>p.id===products[11].id).keywordEvidence[0].capturedAt,'2026-10-10T03:00:00Z');assert.equal(data.imageSearchInput.imageUrl,imageUrl);assert.equal(data.imageSearchInput.title,'Top10 fixture reference');}finally{URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;}
   providerFixture={...providerFixture,products:providerFixture.products.map(p=>({...p,productKeywords:[]}))};document.getElementById('read-provider').click();await settle();assert.equal(comparisonRequests,beforeRequests);assert.doesNotMatch(document.querySelector('#keywords .seller-entry').textContent,/Late seller phrase/);
   providerFixture={...providerFixture,products:providerFixture.products.map((p,i)=>i===0?{...p,imageUrl:'https://img.kwcdn.com/top10-changed-product.jpg',title:'Changed original product title'}:p)};document.getElementById('read-provider').click();await settle();assert.ok(comparisonRequests>beforeRequests,'changed product images and titles must still be reviewed');assert.equal(lastSaved.items.find(p=>p.id===products[0].id).title,'Changed original product title');
   assert.equal(createdTabs.length,beforeTabs);
@@ -455,6 +455,26 @@ test('continuous collection stops at 50 total candidates, preserves virtualized 
     let blob;const oldCreate=URL.createObjectURL;URL.createObjectURL=value=>{blob=value;return 'blob:collection';};
     try{document.getElementById('export').click();const data=JSON.parse(await blob.text());assert.equal(data.products.length,50);assert.equal(data.candidateLimit,50);assert.equal(data.siteWideComplete,false);assert.equal(data.collection.total,50);assert.equal(data.collections.length,1);}finally{URL.createObjectURL=oldCreate;}
   }finally{document.getElementById('cancel').click();await settle();blockComparisons=false;chrome.runtime.sendMessage=oldSend;globalThis.setInterval=oldInterval;globalThis.clearInterval=oldClear;Date.now=oldNow;}
+});
+
+test('query diagnostics retain submitted inputs and observed scope/currency after the third-party tab closes',async()=>{
+  const oldSend=chrome.runtime.sendMessage;
+  try{
+    document.getElementById('cancel').click();await settle();
+    referenceFixture={...fixture,detail:undefined,products:[]};
+    const imageUrl='https://img.kwcdn.com/diagnostic-cup.jpg';
+    storageListeners[0]({'temuSelection:1':{newValue:{id:'diagnostic-cup',windowId:1,tabId:1,imageUrl,title:'Original tumbler title',titleSource:'product-title-element'}}},'session');await settle();
+    providerFixture={state:'results',pageUrl:createdTabs.at(-1).url,queryImageUrl:imageUrl,queryTitle:'Original tumbler title',captureScope:'active-temu-result-list',capturedAt:fixture.capturedAt,products:[{...fixture.products[0],title:'Sticker book',priceText:'CA$3.77',market:'unverified'}],keywords:[]};
+    document.getElementById('read-provider').click();await settle();
+    assert.deepEqual(lastSaved.imageSearchDiagnostics.observations[0].currencies,['CAD']);
+    assert.match(document.getElementById('provider-input-observed').textContent,/Temu普通结果列表.*CAD.*Original tumbler title/);
+    document.getElementById('read-provider').click();await settle();assert.equal(lastSaved.imageSearchDiagnostics.observations.length,1);
+    chrome.runtime.sendMessage=async message=>message.type==='collect-provider'?{ok:false,error:'图搜标签页已关闭'}:oldSend(message);
+    document.getElementById('read-provider').click();await settle();assert.equal(lastSaved.providerJob,null);
+    let blob;const original=URL.createObjectURL;URL.createObjectURL=value=>{blob=value;return 'blob:diagnostics';};
+    try{document.getElementById('export').click();const data=JSON.parse(await blob.text());assert.equal(data.imageSearchInput.title,'Original tumbler title');assert.equal(data.imageSearchDiagnostics.observations[0].captureScope,'active-temu-result-list');assert.deepEqual(data.imageSearchDiagnostics.observations[0].currencies,['CAD']);}finally{URL.createObjectURL=original;}
+    storageListeners[0]({'temuSelection:1':{newValue:{id:'diagnostic-new-query',windowId:1,imageUrl,title:'Different reference'}}},'session');await settle();assert.equal(lastSaved.imageSearchDiagnostics.observations.length,0);
+  }finally{chrome.runtime.sendMessage=oldSend;}
 });
 
 test.after(()=>window.dispatchEvent(new window.Event('pagehide')));

@@ -1,9 +1,9 @@
 export function priceObservation(raw,{market='unverified',sourceUrl='',capturedAt='',source='visible-page',currency:declared=''}={}){
   const text=String(raw||'').replace(/\s+/g,' ').trim();
-  const currency=/USD|US\$/i.test(text)||declared==='USD'?'USD':/€|EUR/.test(text)?'EUR':/£|GBP/.test(text)?'GBP':/￥|¥|CNY|RMB/.test(text)?'CNY':/\$/.test(text)&&market==='us'?'USD':'';
-  const tokens=[...text.matchAll(/(?:USD\s*|US\s*\$\s*|[$€£¥￥]\s*)(\d[\d,]*(?:\.\d{1,2})?)/gi)].map(match=>Number(match[1].replace(/,/g,'')));
+  const currency=/CAD|CA\s*\$/i.test(text)?'CAD':/AUD|(?:AU|A)\s*\$/i.test(text)?'AUD':/USD|US\$/i.test(text)?'USD':/€|EUR/.test(text)?'EUR':/£|GBP/.test(text)?'GBP':/￥|¥|CNY|RMB/.test(text)?'CNY':['USD','CAD','AUD','EUR','GBP','CNY'].includes(declared)?declared:/\$/.test(text)&&market==='us'?'USD':'';
+  const tokens=[...text.matchAll(/(?:(?:USD|CAD|AUD)\s*|(?:US|CA|AU|A)\s*\$\s*|[$€£¥￥]\s*)(\d[\d,]*(?:\.\d{1,2})?)/gi)].map(match=>Number(match[1].replace(/,/g,'')));
   if(!tokens.length&&/^\d[\d,]*(?:\.\d{1,2})?(?:\s*[-–~]\s*\d[\d,]*(?:\.\d{1,2})?)?$/.test(text))tokens.push(...text.split(/\s*[-–~]\s*/).map(value=>Number(value.replace(/,/g,''))));
-  const range=text.match(/(?:USD\s*|US\s*\$\s*|[$€£¥￥]\s*)(\d[\d,]*(?:\.\d{1,2})?)\s*(?:[-–~]|\bto\b)\s*(?:USD\s*|US\s*\$\s*|[$€£¥￥]\s*)?(\d[\d,]*(?:\.\d{1,2})?)/i);
+  const range=text.match(/(?:(?:USD|CAD|AUD)\s*|(?:US|CA|AU|A)\s*\$\s*|[$€£¥￥]\s*)(\d[\d,]*(?:\.\d{1,2})?)\s*(?:[-–~]|\bto\b)\s*(?:(?:USD|CAD|AUD)\s*|(?:US|CA|AU|A)\s*\$\s*|[$€£¥￥]\s*)?(\d[\d,]*(?:\.\d{1,2})?)/i);
   if(range){tokens.length=0;tokens.push(...range.slice(1).map(value=>Number(value.replace(/,/g,''))));}
   const conditional=/coupon|after|estimated|subscribe|member|预估|预计|估计|券|会员|补贴|首次|新用户|折后/i.test(text);
   const starting=/\bfrom\b|起价|起售/i.test(text);

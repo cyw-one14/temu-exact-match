@@ -22,18 +22,21 @@
       return /^\d{6,25}$/.test(id||'')?{id,url:'https://www.temu.com/goods.html?goods_id='+id}:null;
     }catch{return null;}
   }
-  function imageURL(node){
+  function productIds(node){return new Set([...(node.matches('a[href]')?[node]:[]),...node.querySelectorAll('a[href]')].filter(visible).map(a=>identity(a.href||a.getAttribute('href'))?.id).filter(Boolean));}
+  function imageURL(node,productId){
     for(const img of node.querySelectorAll('img')){
       if(!visible(img))continue;
+      const link=img.closest('a[href]'),owner=link&&identity(link.href||link.getAttribute('href'));
+      if(owner&&owner.id!==productId)continue;
       try{const url=new URL(img.currentSrc||img.getAttribute('src')||img.getAttribute('data-src'),location.href);if(url.protocol==='https:'&&!url.username&&!url.password&&!/logo|icon|avatar/i.test(url.pathname))return url.href;}catch{}
     }return '';
   }
   function cardFor(anchor){
-    const row=anchor.closest('tr,[role="row"]');if(row)return row;
-    const known=anchor.closest('a.list-item');if(known)return known;
+    const row=anchor.closest('tr,[role="row"]');if(row&&productIds(row).size===1)return row;
+    const known=anchor.closest('a.list-item');if(known&&productIds(known).size===1)return known;
     let best=anchor;
     for(let node=anchor,step=0;node&&node!==document.body&&step<7;node=node.parentElement,step++){
-      const ids=new Set([...node.querySelectorAll('a[href]')].map(a=>identity(a.href||a.getAttribute('href'))?.id).filter(Boolean));
+      const ids=productIds(node);
       if(ids.size>1||text(node).length>3500)break;
       if(node.querySelector('img'))best=node;
       if(/销量|sold|sales/i.test(text(node)))return node;
@@ -62,7 +65,7 @@
     const field=fields.find(item=>/售价|价格|price/i.test(item.label)&&!/供货|cost|原价|original/i.test(item.label));
     if(field)return {priceText:(/预估|券|estimated|coupon/i.test(field.label)?field.label+' ':'')+(/USD/i.test(field.label)&&!/[\$]|USD/i.test(field.value)?'USD ':'')+field.value,priceCurrency:/USD/i.test(field.label)?'USD':''};
     const excluded='s,del,strike,[data-original-price],.original-price,.old-price,.price-old,.list-price,.coupon,.discount,.saving,.sold,.sales,[hidden],[aria-hidden="true"]';
-    const format=/^(?:(?:from|estimated|预估|预计|起价|券后|会员价)\s*)?(?:USD\s*|US\$\s*|[$€£¥￥]\s*)\d[\d,]*(?:\.\d{1,2})?(?:\s*[-–~]\s*(?:USD\s*|US\$\s*|[$€£¥￥]\s*)?\d[\d,]*(?:\.\d{1,2})?)?$/i;
+    const format=/^(?:(?:from|estimated|预估|预计|起价|券后|会员价)\s*)?(?:(?:USD|CAD|AUD)\s*|(?:US|CA|AU|A)\$\s*|[$€£¥￥]\s*)\d[\d,]*(?:\.\d{1,2})?(?:\s*[-–~]\s*(?:(?:USD|CAD|AUD)\s*|(?:US|CA|AU|A)\$\s*|[$€£¥￥]\s*)?\d[\d,]*(?:\.\d{1,2})?)?$/i;
     const roots=[...card.querySelectorAll('[data-current-price],[itemprop="price"],.current-price,.sale-price,.goods-price,.price,.price-wrap')].filter(visible);
     const leaves=[...card.querySelectorAll('*')].filter(node=>!node.children.length&&visible(node));
     for(const root of [...roots,...leaves]){
@@ -71,7 +74,7 @@
       const originalChildren=[...root.querySelectorAll('*')],copiedChildren=[...copy.querySelectorAll('*')];
       copiedChildren.forEach((child,index)=>{if(!visible(originalChildren[index]))child.remove();});
       for(const child of copy.querySelectorAll(excluded))child.remove();
-      const value=clean(root.getAttribute('data-current-price')||root.getAttribute('content')||copy.textContent).replace(/(\d)\s*\.\s*(\d)/g,'$1.$2').replace(/^([$€£¥￥])(?:\s*\1)+\s*(?=\d)/,'$1');
+      const value=clean(root.getAttribute('data-current-price')||root.getAttribute('content')||copy.textContent).replace(/(\d)\s*\.\s*(\d)/g,'$1.$2').replace(/^((?:US|CA|AU|A)?\$|[€£¥￥])(?:\s*\1)+\s*(?=\d)/i,'$1');
       const currency=root.getAttribute('data-currency')||'';
       // Dedicated price containers may display the currency through CSS/icons.
       // Preserve their numeric amount, with currency unknown if not explicit.
@@ -86,10 +89,16 @@
   const pageMarket=/美国|United States|^US$/i.test(selectedRegion)||/(?:当前站点|国家|站点|market|country)\s*[:：]\s*(?:美国|United States|US\b)/i.test(body)?'us':'unverified';
   const seen=new Map();
   const declared=typeof globalThis.temuDeclaredProducts==='function'?globalThis.temuDeclaredProducts():new Map();
-  for(const anchor of document.querySelectorAll('a[href]')){
+  const containers=[...document.querySelectorAll('[class~="temu-search"],[class~="1688-search"]')].filter(visible);
+  const lists=containers.flatMap(node=>[...node.querySelectorAll('.list-wrap')].filter(visible));
+  const anchors=containers.length?lists.flatMap(node=>[...node.querySelectorAll('a[href]')]):[...document.querySelectorAll('a[href]')];
+  result.captureScope=containers.length?'active-temu-result-list':'visible-product-cards';
+  result.queryTitle=current.searchParams.get('title')||'';
+  for(const anchor of anchors){
     if(!visible(anchor))continue;
+    if(anchor.closest('.search-ad,[data-recommendation],header,footer,nav'))continue;
     const product=identity(anchor.href||anchor.getAttribute('href'));if(!product)continue;
-    const card=cardFor(anchor),imageUrl=imageURL(card);if(!imageUrl)continue;
+    const card=cardFor(anchor),imageUrl=imageURL(card,product.id);if(!imageUrl)continue;
     const fields=tableFields(card),rawText=text(card).slice(0,3500);
     const titleField=fields.find(field=>/商品名称|商品信息|产品名称|product|title/i.test(field.label));
     const title=clean(card.querySelector('.title')?.textContent||anchor.getAttribute('title')||anchor.getAttribute('aria-label')||titleField?.value||anchor.querySelector('img')?.alt||card.querySelector('h2,h3,h4')?.textContent||text(anchor)||card.querySelector('img')?.alt).slice(0,2000);

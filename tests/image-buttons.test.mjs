@@ -23,6 +23,14 @@ test('a visible button clipped to the viewport edge still dispatches its own pro
   assert.equal(app.messages.length,1);assert.equal(app.messages[0].selection.productId,'601123456789001');
 });
 
+test('a larger unlinked recommendation image keeps its own card ID instead of borrowing the current detail product',async()=>{
+  const app=await mount('<html><body><main><h1>Current kitchen gloves</h1><img id="hero" src="https://img.kwcdn.com/hero.jpg"><article><img id="recommendation" src="https://img.kwcdn.com/gauge.jpg"><a href="https://www.temu.com/goods.html?goods_id=601123456789002"><h2>Recommended pressure gauge</h2></a></article></main></body></html>',{rect:img=>({left:20,top:30,right:20+(img.id==='hero'?400:600),bottom:30+(img.id==='hero'?400:600),width:img.id==='hero'?400:600,height:img.id==='hero'?400:600})});
+  for(const button of app.shadow.querySelectorAll('button'))button.click();
+  const hero=app.messages.find(message=>message.selection.imageUrl.includes('/hero.jpg'));
+  const other=app.messages.find(message=>message.selection.imageUrl.includes('/gauge.jpg'));
+  assert.equal(hero?.selection.productId,'601123456789001');assert.equal(other?.selection.productId,'601123456789002');assert.equal(other?.selection.title,'Recommended pressure gauge');
+});
+
 test('a detail hero inside a non-product zoom link keeps its own button instead of leaving only the thumbnail',async()=>{
   const app=await mount('<html><head><title>Actual glove title</title></head><body><main><div><a href="https://img.kwcdn.com/hero.jpg"><img id="hero" src="https://img.kwcdn.com/hero.jpg"></a></div><img data-small src="https://img.kwcdn.com/thumb.jpg"></main></body></html>');
   for(const button of app.shadow.querySelectorAll('button'))button.click();

@@ -1,4 +1,7 @@
 import sharp from './sharp.mjs';
+import {createHash} from './crypto.mjs';
+import {ImageLoader} from './image-loader.mjs';
+import {PhotoCache} from './photo-cache.mjs';
 import {imageBuffer,comparePixels,pageCompare,localCompare} from '../server/vision.mjs';
 import {prepareSubjects,subjectState,subjectDescriptor,compareDescriptors,compareForegroundColors} from '../server/subjects.mjs';
 import {attentionState} from '../server/product-attention.mjs';
@@ -11,37 +14,24 @@ import {officialImage} from '../shared/provider.mjs';
 import {sameProductImageAsset} from '../shared/image-assets.mjs';
 import {segmentationDevice} from './transformers.mjs';
 
-const downloads=new Map();
+const images=new ImageLoader({allowed:officialImage,decodeData:imageBuffer,decode:input=>sharp(input).rotate().resize(1600,1600,{fit:'inside',withoutEnlargement:true}).png().toBuffer()});
+const loadImage=url=>images.get(url);
+export const prefetch=urls=>images.prefetch(urls);
+const photos=new PhotoCache(comparePixels),references=new Map();
+function referenceBuffer(data){if(!references.has(data)){references.set(data,imageBuffer(data));if(references.size>2)references.delete(references.keys().next().value);}return references.get(data);}
+const digest=buffer=>createHash('sha256').update(buffer).digest('hex');
 export function health(){const model={...subjectState};if(model.state==='ready'&&fastFeatureState.state!=='ready'){model.state=fastFeatureState.state==='unavailable'?'error':'loading';model.message=fastFeatureState.message;model.progress=null;}return {ok:true,engine:'browser',runtime:'browser-wasm-v1',segmentationDevice,configured:true,matchingPolicy:'title-groups-outline-v16',model,productAttention:{...attentionState},fastFeatures:{...fastFeatureState}};}
 export async function prepare(){await Promise.all([prepareSubjects(),prepareFastFeatures()]);return health();}
-async function loadImage(raw){
-  if(downloads.has(raw))return downloads.get(raw);
-  const task=(async()=>{
-    let input;
-    if(String(raw).startsWith('data:'))input=imageBuffer(raw);
-    else{
-      if(!officialImage(raw))throw Error('只读取已抓取的 TEMU 官方商品图片');
-      const response=await fetch(raw,{credentials:'omit',redirect:'error',signal:AbortSignal.timeout(30000)});
-      if(!response.ok)throw Error('商品图片读取失败 HTTP '+response.status);
-      if(Number(response.headers.get('content-length'))>8000000)throw Error('商品图片超过8 MB');
-      const reader=response.body.getReader(),chunks=[];let size=0;
-      try{for(;;){const part=await reader.read();if(part.done)break;size+=part.value.length;if(size>8000000)throw Error('商品图片超过8 MB');chunks.push(part.value);}}finally{await reader.cancel().catch(()=>{});}
-      input=Buffer.concat(chunks);
-    }
-    const buffer=await sharp(input).rotate().resize(1600,1600,{fit:'inside',withoutEnlargement:true}).png().toBuffer();
-    return {buffer,dataUrl:'data:image/png;base64,'+buffer.toString('base64')};
-  })();
-  downloads.set(raw,task);if(downloads.size>64)downloads.delete(downloads.keys().next().value);
-  try{return await task;}catch(error){downloads.delete(raw);throw error;}
-}
 export async function request(path,body={}){
   if(path==='/health')return health();
   if(path==='/prepare')return {ok:true,...await prepare()};
-  if(path==='/image')return {ok:true,dataUrl:(await loadImage(body.imageUrl)).dataUrl};
+  if(path==='/image')return {ok:true,dataUrl:'data:image/png;base64,'+(await loadImage(body.imageUrl)).buffer.toString('base64')};
   if(path!=='/compare')throw Error('浏览器识别操作无效');
-  const reference=imageBuffer(body.referenceImage),candidate=await loadImage(body.imageUrl),specs=body.referenceSpecs||{};
+  const reference=referenceBuffer(body.referenceImage),candidate=await loadImage(body.imageUrl),specs=body.referenceSpecs||{};
   const options={sameAsset:sameProductImageAsset(body.referenceImageUrl,body.imageUrl),referenceText:String(body.referenceTitle||'').slice(0,1000)};
-  if(body.phase==='image-priority'){const result=await comparePixels(reference,candidate.buffer,options);return {ok:true,comparison:{...result,subject:null,matchStage:'page-image',priorityScore:result.samePhoto?1:result.imageSimilarity}};}
+  const photoKey=digest(reference)+':'+digest(candidate.buffer)+':'+options.sameAsset;
+  options.photoComparison=await photos.get(photoKey,reference,candidate.buffer,options);
+  if(body.phase==='image-priority'){const result=options.photoComparison;return {ok:true,comparison:{...result,subject:null,matchStage:'page-image',priorityScore:result.samePhoto?1:result.imageSimilarity}};}
   const text=String(body.candidateText||'').slice(0,18000);
   if(body.phase!=='subject-review')return {ok:true,comparison:{...await pageCompare(reference,candidate.buffer,specs,text,options),engine:'browser',matchedImageUrl:body.imageUrl}};
   await prepare();options.subjectMatching=true;

@@ -106,6 +106,35 @@ test('subject progress counts completed responses, keeps in-flight user correcti
   assert.equal(ui.get('progress-title').textContent,'核对完成');assert.equal(ui.get('progress-percent').textContent,'100%');assert.match(ui.get('progress-totals').textContent,/无法确认 1/);assert.equal(ui.saved.items[0].manualClassification.decision,'same');ui.close();
 });
 
+test('a new selection during an awaited diagnostic save cannot receive the previous query products',async()=>{
+  const originalInterval=globalThis.setInterval;let tickProvider,release,ui;
+  globalThis.setInterval=(callback,ms,...args)=>{if(ms===2000)tickProvider=callback;return originalInterval(callback,ms,...args);};
+  try{
+    const imageUrl='https://img.kwcdn.com/old-query.jpg';
+    const saved={...savedState([]),providerJob:{tabId:7,expectedImageUrl:imageUrl,submittedInput:{imageUrl,title:'Old query'}},collection:null};
+    const provider={state:'results',queryImageUrl:imageUrl,pageUrl:'https://www.temaishuju.com/plugin/search-image?old',capturedAt:'2026-10-17T00:00:00Z',products:[makeItem('601123456789099')],keywords:[]};
+    ui=await mount(saved,{provider});const originalSet=chrome.storage.session.set;
+    chrome.storage.session.set=async data=>{await originalSet(data);if(data['temuMatch:1'].imageSearchDiagnostics?.observations?.length&&!release)await new Promise(resolve=>{release=resolve;});};
+    tickProvider();await until(()=>release);
+    ui.changeListeners[0]({'temuSelection:1':{newValue:{id:'new-during-old-save',windowId:1,imageUrl:image,title:'New reference'}}},'session');
+    await until(()=>ui.saved?.selection?.id==='new-during-old-save');release();await delay();await delay();
+    assert.equal(ui.saved.items.length,0);assert.equal(ui.get('exact-results').children.length,0);assert.equal(ui.get('pending-results').children.length,0);
+  }finally{release?.();ui?.close();globalThis.setInterval=originalInterval;}
+});
+
+test('stopping inference keeps periodic health checks from recreating its Worker until the user resumes',async()=>{
+  const originalInterval=globalThis.setInterval,OriginalWorker=globalThis.Worker;let tickHealth,created=0,ui;
+  globalThis.setInterval=(callback,ms,...args)=>{if(ms===5000)tickHealth=callback;return originalInterval(callback,ms,...args);};
+  globalThis.Worker=class extends OriginalWorker{constructor(){super();created++;}};
+  try{
+    const item=makeItem('601123456789098','pending');delete item.subjectAttempt;
+    ui=await mount(savedState([item]),{compare:(body,signal)=>new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('Stopped','AbortError')),{once:true}))});
+    await until(()=>ui.requests.length>0);ui.get('cancel').click();await until(()=>ui.get('cancel').hidden);
+    const before=created;assert.equal(typeof tickHealth,'function');await tickHealth();assert.equal(created,before);assert.match(ui.get('service-status').textContent,/识别已暂停/);
+    ui.get('resume-analysis').click();await until(()=>created>before&&ui.requests.length>1);assert.equal(ui.get('cancel').hidden,false);
+  }finally{ui?.close();globalThis.setInterval=originalInterval;globalThis.Worker=OriginalWorker;}
+});
+
 test('a failed connection has a visible progress error and preserves the unconfirmed result',async()=>{
   const item=makeItem('601123456789007','pending');delete item.subjectAttempt;
   const ui=await mount(savedState([item]),{compare:()=>{throw new TypeError('TEST connection failure');}});

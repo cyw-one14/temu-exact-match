@@ -139,13 +139,13 @@ export async function comparePixels(referenceBuffer,candidateBuffer,{sameAsset=f
 // Page-image matching is independent of the subject model and its cache.
 // It restores the original pixel / official-image-resource evidence for retrieval.
 export async function pageCompare(referenceBuffer,candidateBuffer,referenceSpecs,candidateText,options={}) {
-  const pixels=await comparePixels(referenceBuffer,candidateBuffer,options);
+  const pixels=options.photoComparison||await comparePixels(referenceBuffer,candidateBuffer,options);
   const comparison={...pixels,subject:null,checks:localSpecChecks(referenceSpecs,candidateText),differences:[],evidence:[pixels.pixelIdentical?'标准化图片像素一致':pixels.assetVerified?'同一官方商品图片资源，尺寸 / 格式转换后图像内容一致':pixels.reencodedPhoto?'完整图片纹理与全图局部内容一致，确认压缩 / 缩放同图副本':'页面图片尚未确认一致，留待后续主体核对']};
   return {...comparison,...decideProductMatch(comparison,referenceSpecs,candidateText),engine:'page-image',matchStage:'page-image'};
 }
 
 export async function localCompare(referenceBuffer,candidateBuffer,referenceSpecs,candidateText,options={}) {
-  const pixels=await comparePixels(referenceBuffer,candidateBuffer,options);
+  const pixels=options.photoComparison||await comparePixels(referenceBuffer,candidateBuffer,options);
   let fastMatch=null,instanceMatch=null;
   if(options.subjectMatching&&!pixels.samePhoto){
     try{fastMatch=await fastFeatureCompare(referenceBuffer,candidateBuffer);}catch(error){fastMatch={matched:false,reason:'快速特征核验不可用，使用原主体模型',error:String(error.message||error).slice(0,160)};}

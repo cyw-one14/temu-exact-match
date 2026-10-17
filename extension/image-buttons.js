@@ -36,11 +36,21 @@
     }
     return null;
   }
+  function cardOwner(img){
+    const root=img.closest('article,[role="listitem"],[data-product-id],[data-goods-id]');
+    if(!root)return null;
+    const direct=root.getAttribute('data-product-id')||root.getAttribute('data-goods-id');
+    const ids=new Set([...root.querySelectorAll('a[href]')].map(link=>identity(link.href)).filter(Boolean));
+    if(/^\d{6,25}$/.test(direct||''))ids.add(direct);
+    return ids.size===1?{root,id:[...ids][0]}:null;
+  }
   function selection(img,declarations=new Map(),heroes=new Map()){
     const imageUrl=imageURL(img);if(!imageUrl||/^(?:temu|(?:temu\s+)?logo|avatar)$/i.test((img.alt||'').trim()))return null;
     let productId='',productIdSource='',root=img.parentElement;
     const current=identity(location.href),anchor=img.closest('a[href]');
     if(anchor&&identity(anchor.href)){productId=identity(anchor.href);productIdSource='enclosing-product-link';root=anchor;}
+    const ownCard=cardOwner(img);
+    if(!productId&&ownCard){productId=ownCard.id;productIdSource='scoped-product-card';root=ownCard.root;}
     const asset=value=>{try{const url=new URL(value);return url.origin+url.pathname;}catch{return '';}};
     const bound=[...declarations.values()].filter(product=>product.images?.some(value=>asset(value)===asset(imageUrl)));
     if(!productId&&bound.length===1){productId=bound[0].productId;productIdSource='declared-product-image';}
@@ -53,6 +63,7 @@
       const gallery=img.closest('[data-product-gallery],[aria-label="Product images"]');
       if(!heroes.has(main))heroes.set(main,[...main.querySelectorAll('img')].filter(node=>{
         if(!imageURL(node)||!exposed(node))return false;
+        const owner=cardOwner(node);if(owner&&owner.id!==current)return false;
         const link=node.closest('a[href]');
         // A link to the image itself opens a zoom view, not another product.
         return !link||!identity(link.href)&&asset(link.href)===asset(imageURL(node));
