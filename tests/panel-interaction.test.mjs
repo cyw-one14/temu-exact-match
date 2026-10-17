@@ -78,7 +78,7 @@ test('provider updates preserve a manual correction while refreshing original fi
   await until(()=>ui.saved?.items[0].priceText==='$4.12');
   assert.equal(ui.saved.items[0].manualClassification.decision,'same');assert.equal(ui.requests.length,0);assert.match(ui.get('exact-results').textContent,/TEST changed original listing/);assert.match(ui.get('exact-results').textContent,/人工归为同款/);
   ui.get('resume-collection').click();
-  assert.equal(ui.get('progress-title').textContent,'正在收集商品');assert.match(ui.get('progress-count').textContent,/已收集 1 \/ 最多 100/);assert.equal(ui.get('progress-percent').textContent,'1%');
+  assert.equal(ui.get('progress-title').textContent,'正在收集商品');assert.match(ui.get('progress-count').textContent,/已收集 1 \/ 最多 50/);assert.equal(ui.get('progress-percent').textContent,'2%');
   ui.get('stop-collection').click();assert.equal(ui.get('progress-percent').textContent,'100%');assert.match(ui.get('progress-count').textContent,/已完成核对 1 \/ 1/);ui.close();
 });
 

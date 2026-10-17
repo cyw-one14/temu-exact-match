@@ -7,7 +7,7 @@
 <details class="settings-options"><summary>销量与核对选项</summary><div class="settings-options-body">
 <label for="provider-period">第三方销量采用的周期</label><select id="provider-period"><option value="unknown">页面“已售出” / “销量”，周期未知</option><option value="30d">页面标明的近 30 天</option><option value="7d">页面标明的近 7 天</option><option value="month">页面标为“月销量”</option><option value="week">页面标为“周销量”</option><option value="day">页面标为“日销量”</option><option value="today">页面标为“今日销量”</option><option value="total">页面标明的累计 / 总销量</option></select>
 <p class="hint">只读取页面真实展示的销量，不同来源和周期分别排序。未展示所选周期时显示未知。</p>
-<label for="max-candidates">每批核对数量</label><input id="max-candidates" type="number" min="1" max="40" value="12"><p class="hint">默认每批12条，后续自动继续。每次查找最多收集100条候选，不足按实际数量。通常无需修改。</p></div></details>
+<label for="max-candidates">每批核对数量</label><input id="max-candidates" type="number" min="1" max="40" value="12"><p class="hint">默认每批12条，后续自动继续。每次查找最多收集50条候选，不足按实际数量。通常无需修改。</p></div></details>
 <button id="save" class="primary" type="button">保存设置</button><p id="message" class="status" role="status" aria-live="polite"></p>
 <section><h2>识别服务</h2><p id="health" class="hint">正在检查…</p><button id="open-setup" type="button">查看服务状态</button><p class="hint">图片核对需要这台电脑上的识别服务运行，默认使用本地模型。</p></section>
 <details><summary>第一次怎么用？</summary><ol><li>在 TEMU 美国站商品图片上点“查同款”。</li><li>等待自动核对；需要登录或上传时，按侧栏提示继续。</li><li>查看“同款 / 未确定 / 非同款”，有误判可在卡片上调整，下次会记住。</li></ol><button id="open-temu" type="button">打开 TEMU</button></details></main><script type="module" src="settings.js"></script></body></html>

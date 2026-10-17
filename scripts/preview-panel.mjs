@@ -1,6 +1,7 @@
 // Local UI fixture only. This server is separate from the production service and
 // never supplies data to the installed extension or to a TEMU query.
 import http from 'node:http';
+import {COLLECTION_LIMIT} from '../shared/collection.mjs';
 import {readFile,readdir} from 'node:fs/promises';
 const root=new URL('../extension/',import.meta.url),files=new Set(await readdir(root));
 const image='data:image/png;base64,'+(await readFile(new URL(process.argv.includes('--image-input')?'../.cache/ui-validation/reported-reference.png':'../.cache/subject-validation/glove-subject.png',import.meta.url))).toString('base64');
@@ -15,8 +16,8 @@ if(process.argv.includes('--top10')){
 }
 if(process.argv.includes('--collection')){
   const template=fixture.items[0];
-  fixture.items=Array.from({length:100},(_,i)=>({...template,salesSource:'provider-visible',id:'qa-capture-'+i,title:'界面测试采集商品 '+(i+1)+'（非真实查询数据）',status:'pending',autoAttempt:1,subjectAttempt:1}));
-  fixture.collection={source:'provider',tabId:0,status:'paused',reason:'limit-reached',limit:100,analysisTotal:100,total:100,productIds:fixture.items.map(item=>item.id),pageKeys:['界面测试结果页1','界面测试结果页2'],queryKey:'qa-only',query:'界面测试'};
+  fixture.items=Array.from({length:COLLECTION_LIMIT},(_,i)=>({...template,salesSource:'provider-visible',id:'qa-capture-'+i,title:'界面测试采集商品 '+(i+1)+'（非真实查询数据）',status:'pending',autoAttempt:1,subjectAttempt:1}));
+  fixture.collection={source:'provider',tabId:0,status:'paused',reason:'limit-reached',limit:COLLECTION_LIMIT,analysisTotal:COLLECTION_LIMIT,total:COLLECTION_LIMIT,productIds:fixture.items.map(item=>item.id),pageKeys:['界面测试结果页1','界面测试结果页2'],queryKey:'qa-only',query:'界面测试'};
   fixture.collectionHistory=[];
   fixture.pages=[{url:'http://127.0.0.1:43211/?qa-page=1'},{url:'http://127.0.0.1:43211/?qa-page=2'}];
 }

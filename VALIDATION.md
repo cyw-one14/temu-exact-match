@@ -383,3 +383,11 @@
 - 隔离预览新增--design与empty/selected/progress/login/upload状态，以及设置页桩。使用明确标为测试的标题/商品ID/价格，不运行真实图搜或图片匹配；测试站点localStorage仅模拟记忆。实际浏览器390×840验证首页、选图、40%真实完成计数、暂停后直接继续、三类页签/键盘、移出后刷新记忆、恢复自动、完整详情、登录/上传提示及设置保存反馈；内容宽375px，无横向溢出。截图.cache/ui-validation/simple-home-0.2.17.jpg、simple-results-0.2.17.jpg、simple-progress-0.2.17.jpg和simple-settings-0.2.17.jpg，不入Git。测试调整已恢复自动判断，临时视口已恢复、预览页关闭、43211预览服务停止，没有修改用户实际扩展存储或真实账号。
 - 最终ZIP23文件、80,071字节；python scripts/verify-package.py通过MV3、版本0.2.17、共享模块与记忆模块逐字一致、无配置密钥检查，扩展ID保持ofacjamiaffjahodlncfbcpekooecjno。验证打包后直接执行service-control.mjs start启动并复用正式服务，NoProxy直连43187/health确认0.2.17、原匹配策略、主体模型ready、SIFT进程ready；人体关注/诊断模型idle按需加载。没有停止其他项目或修改Windows自启。git diff --check通过，fetch确认起点与origin/main一致。
 - AGENTS、README与安装说明同步界面入口。使用新版需在扩展管理页重新加载0.2.17、刷新TEMU页并重开侧栏；0.2.16起的storage.local长期分类记忆保留，当前storage.session分析仍会随扩展重载清空，需要时先在更多操作中导出留档。没有代用户重载已安装扩展，也未在真实登录账号发起新图搜；测试页视觉验证不等于用户账号端到端验证或真实商品识别准确率。
+
+## 2026-10-17：单次采集上限调整为50条0.2.18
+
+- 开始时main/4eaf746/0.2.17工作区干净，已读AGENTS、README和验证记录。用户要求从100条改为50条。shared/collection.mjs统一上限改为50，扩展副本通过打包同步；所有来源、翻页和手动检索词共用同一总额度，满50条停止导航并自动核对，不足按实际数量。旧会话只恢复原顺序前50条，已保留商品仍可更新价格，导出candidateLimit=50且siteWideComplete=false。
+- 采集进度按50条额度显示（1条=2%）；进度提示、侧栏页脚、规则说明、设置、README和安装说明同步。每批核对12条、销量Top10、自动主体/颜色/轮廓规则、真实价格/原标题/链接/销量/词来源和长期人工分类记忆不变，匹配策略仍为title-groups-outline-v16。AGENTS新增最新50条规则，明确替代历史100条要求；本机最近100条诊断和人工记忆写入校验的100项保护不属于采集额度，保留原值。
+- 更新既有采集/侧栏边界检查：49条继续、50条暂停且不能再次恢复超额、175行只保留前50条、跨来源共用额度、旧会话截断、虚拟列表翻页累计45→50并停止、满额后价格更新但不导航、JSON完整50条与candidateLimit=50，以及长期人工调整和Top10回归。node --test tests/collection.test.mjs tests/panel-limit.test.mjs tests/panel-interaction.test.mjs tests/panel.test.mjs共42项全部通过，0失败/跳过，约36.8秒；日志.cache/validation-0.2.18-limit.log不入Git。本次只改额度/文案，未重跑未修改的图像模型全量测试，也未在用户真实账号发起新查询，测试不代表实际识别准确率。
+- 已运行node scripts/package.mjs，ZIP23文件、80,071字节，版本0.2.18，稳定扩展ID保持。PATH中的python.exe被本机应用控制策略阻止，使用工具提供的Codex内置Python执行同一个scripts/verify-package.py校验成功：MV3、ZIP完整、版本一致、共享模块/记忆模块逐字一致且无配置密钥；没有更改系统策略。预览夹具改为读取统一额度，未运行测试浏览器或修改用户实际扩展存储。
+- 打包验证后直接运行service-control.mjs start更新本项目正式服务，NoProxy直连43187/health确认0.2.18、主体模型ready、SIFT ready；人体关注与诊断模型按需加载。未停止其他项目或修改自启。git diff --check通过，fetch确认起点与origin/main一致。使用新版需重新加载0.2.18扩展、刷新TEMU后重新查找；当前会话分析如需留档先导出，storage.local长期人工记忆保留。

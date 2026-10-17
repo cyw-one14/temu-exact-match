@@ -12,16 +12,16 @@ globalThis.chrome={windows:{getCurrent:async()=>({id:1})},storage:{session:{get:
 globalThis.fetch=async url=>{requests.push(url);return {ok:true,json:async()=>({engine:'local',model:{state:'ready',message:'TEST',progress:100}})};};
 await import('../extension/panel.js');
 const settle=async()=>{for(let i=0;i<30;i++)await new Promise(resolve=>setTimeout(resolve,1));};
-test('an oversized old session restores its first 100 and changing source cannot add more, while same-ID detail evidence can refresh',async()=>{
-  assert.match(document.getElementById('scope').textContent,/已读取 100 个商品/);
-  assert.match(document.getElementById('collection-status').textContent,/100条上限/);
+test('an oversized old session restores its first 50 and changing source cannot add more, while same-ID detail evidence can refresh',async()=>{
+  assert.match(document.getElementById('scope').textContent,/已读取 50 个商品/);
+  assert.match(document.getElementById('collection-status').textContent,/50条上限/);
   assert.equal(document.getElementById('resume-collection').hidden,true);
   document.getElementById('collect').click();await settle();
-  assert.deepEqual(lastSaved.items.map(item=>item.id),items.slice(0,100).map(item=>item.id));
+  assert.deepEqual(lastSaved.items.map(item=>item.id),items.slice(0,50).map(item=>item.id));
   assert.equal(lastSaved.collection.reason,'limit-reached');
   page={pageUrl:items[0].url,products:[],detail:{...items[0],detailsText:'Brand: Captured detail brand',structuredSpecs:{brand:'Captured detail brand'},sourceUrl:items[0].url}};
   document.getElementById('collect').click();await settle();
-  assert.equal(lastSaved.items.length,100);assert.equal(lastSaved.items[0].structuredSpecs.brand,'Captured detail brand');assert.equal(lastSaved.items[0].salesSource,'provider-visible');
+  assert.equal(lastSaved.items.length,50);assert.equal(lastSaved.items[0].structuredSpecs.brand,'Captured detail brand');assert.equal(lastSaved.items[0].salesSource,'provider-visible');
   assert.ok(messages.every(message=>message.type==='collect'),'no result navigation or new product page at the limit');
   assert.ok(requests.every(url=>url.endsWith('/health')),'already completed results are preserved');
 });

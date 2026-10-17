@@ -45,7 +45,7 @@ function renderProgress(){
   const running=collecting||Boolean(activity)||(!paused&&!analysisError&&waiting>0&&serviceAvailable);
   let title=({collect:'正在收集商品',images:'正在筛选图片',subject:'正在核对商品主体',complete:'核对完成'})[stage];
   let detail=activity?.detail||'';
-  if(collecting)detail='先收集候选，再自动核对；最多100条，不足时按实际数量。';
+  if(collecting)detail='先收集候选，再自动核对；最多'+COLLECTION_LIMIT+'条，不足时按实际数量。';
   else if(analysisError){title='处理遇到问题';detail=analysisError;}
   else if(paused){title='核对已暂停';detail='已保留当前结果，点“继续核对”接着处理。';}
   else if(!total){title=blocked?'等待处理图搜页面':'等待商品结果';detail=$('provider-status').textContent;}
@@ -871,7 +871,7 @@ for(const button of document.querySelectorAll('[data-result-tab]')){
 }
 $('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('模型正在加载，完成后可以识别图片。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.2.17',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||null,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.2.18',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||null,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
