@@ -439,3 +439,9 @@
 - 独立43214预览使用--prices与明确标为测试的价格/标题，本地图片和浏览器API替身，不请求真实账号或图片模型。实际浏览器验证升序1.39→2.72→8.50、降序8.50→2.72→1.39及下拉选项；卡片默认说明行消失，币种字段未补造。截图.cache/ui-validation/prices-desc-0.3.3.png、prices-menu-0.3.3.png不入Git或安装包。未设置视口覆盖；验证标签关闭，仅停止本次创建的43214进程，未动用户43211页或实际扩展存储。
 - node scripts/package.mjs及python scripts/verify-package.py通过：0.3.3 ZIP79文件、316,251,207字节，SHA-256为C7C02007DAF13706EB51E7FCD73C79BA0C5F7D22D35622ED8FE5D236D8895E09，版本ZIP和摘要保留dist；固定模型摘要、Python/shared一致、稳定ID与生产安全策略通过，另逐字核对28个入口文件与磁盘一致。README、安装说明、AGENTS与导出版本同步。
 - 最终直接执行service-control.mjs start更新本机兼容服务，NoProxy直连43187/health确认0.3.3、主体和SIFT ready；新扩展仍不依赖该服务，未改自启。fetch确认origin/main与起点一致，git diff --check通过。用户先导出需要保留的本次JSON，再重新加载项目extension并刷新TEMU；长期人工分类保留，未代用户重载扩展或清理存储。
+## 2026-10-17：卡片隐藏国家站提示0.3.4
+
+- 起点main/648b2d9/0.3.3工作区干净，已读AGENTS、README和验证记录。按用户要求去掉默认商品卡片上的“国家站未核实”，已有折叠详情、导出market字段及同口径销量分组保留国家站状态；不将未核实数据写成美国站，不改价格排序、人工记忆或识别规则。
+- 复用既有界面测试，无新增仅验证删除文案的测试。node --test --test-concurrency=1 tests/panel-interaction.test.mjs tests/panel.test.mjs相关40项通过，0失败/跳过，约48.21秒，日志.cache/validation-0.3.4-panel.log。43214隔离预览实测默认卡片无国家站提示，展开商品详情仍显示原未知状态；测试标题/价格明确标为虚构界面数据，未发起真实图搜或修改用户扩展存储。截图.cache/ui-validation/country-hidden-0.3.4.png不入Git/安装包，验证标签关闭，仅停止本次创建的43214进程。
+- node scripts/package.mjs及python scripts/verify-package.py通过：0.3.4 ZIP79文件、316,251,194字节，SHA-256为6900729D75496DC2D92402BF0F20F78D0C6A5389519CA71F7E6D2303A4604039，版本ZIP和摘要保留dist；固定模型、Python/shared源、安全策略与稳定扩展ID校验通过，另逐字核对28个包内入口文件与磁盘一致。版本/README/安装说明/AGENTS同步，未改图片加载或模型，不把界面验证当作识别准确率评估。
+- 打包后直接执行service-control.mjs start更新本机兼容服务，NoProxy直连43187/health确认0.3.4、主体和SIFT ready；未改自启，新扩展仍不依赖该服务。fetch确认origin/main与起点一致，git diff --check通过。更新前先导出需要保留的本次JSON，再重新加载扩展并刷新TEMU；长期人工分类保留，未代用户重载或清理存储。
