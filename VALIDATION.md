@@ -431,3 +431,11 @@
 - 新增失败候选重新核对用例，确认旧下载错误被清除、原标题/原价保留并可进入同款。最终node --test --test-concurrency=1 tests/*.test.mjs完整183项通过，0失败/跳过，约61.63秒，日志.cache/validation-0.3.2-final.log。不将这些用例或单张同图链路验证当作真实商品识别准确率保证。
 - node scripts/package.mjs与python scripts/verify-package.py通过：0.3.2 ZIP共79文件、316,250,656字节，SHA-256为7E0C3277F7A245520634AEA0345460265F9A8D53645AAD6425FA137FCF05E99C，dist保留版本ZIP及摘要；模型资产摘要、Python/shared源、稳定扩展ID及生产安全策略通过，另逐字核对28个根文件与磁盘一致。新增开发下载验证服务器不入包，README/安装说明/导出版本同步0.3.2；AGENTS补充原生Worker联网路径验证要求。
 - 打包后直接执行service-control.mjs start更新本机兼容服务，NoProxy直连43187/health确认0.3.2、主体及SIFT ready，其他模型按需idle，未改自启；新扩展仍在浏览器内运行。fetch确认origin/main与本次起点一致，git diff --check通过。原项目extension目录已更新，用户先导出当前JSON、重新加载扩展并刷新TEMU后重查，长期人工分类保留；未代用户重载其扩展或清理存储。
+## 2026-10-17：简化价格说明并增加双向排序0.3.3
+
+- 起点main/d27d3ec/0.3.2工作区干净，已读AGENTS、README和验证记录。按用户截图要求，将默认卡片价格下方“页面显示价 · 币种未确认”等说明移到折叠商品详情；原价、币种、价格类型、来源和导出字段保留。原“美元价格从低到高”改为“价格从低到高”，增加“价格从高到低”，保留匹配/同口径销量排序。
+- 升降序均对已抓取普通价、区间起点和起价按数值排列，0价有效，同价保留原顺序；明确币种、仅有原页面货币符号及未标币种分别分组，各组顺序按首次出现保持，不做汇率换算或把未知$写成USD。多组时显示简短组名，单组不增加提示；缺价、歧义价、非有限数和优惠/预估价保持顺序放最后。新规则替代此前仅USD可参与价格排序的限制，未改原币种识别或数据来源。
+- 新增交互检查覆盖两个方向、仅$的2.72、重复同价、CAD/USD分组、0价、区间、缺价和条件价末置、默认卡片无说明行、详情保留及导出原价不变。最终node --test --test-concurrency=1 tests/*.test.mjs完整184项通过，0失败/跳过，约61.41秒，日志.cache/validation-0.3.3-final.log。没有改图片下载/模型/同款规则、50条额度、人工记忆和Top10口径，不据测试宣称识别准确率。
+- 独立43214预览使用--prices与明确标为测试的价格/标题，本地图片和浏览器API替身，不请求真实账号或图片模型。实际浏览器验证升序1.39→2.72→8.50、降序8.50→2.72→1.39及下拉选项；卡片默认说明行消失，币种字段未补造。截图.cache/ui-validation/prices-desc-0.3.3.png、prices-menu-0.3.3.png不入Git或安装包。未设置视口覆盖；验证标签关闭，仅停止本次创建的43214进程，未动用户43211页或实际扩展存储。
+- node scripts/package.mjs及python scripts/verify-package.py通过：0.3.3 ZIP79文件、316,251,207字节，SHA-256为C7C02007DAF13706EB51E7FCD73C79BA0C5F7D22D35622ED8FE5D236D8895E09，版本ZIP和摘要保留dist；固定模型摘要、Python/shared一致、稳定ID与生产安全策略通过，另逐字核对28个入口文件与磁盘一致。README、安装说明、AGENTS与导出版本同步。
+- 最终直接执行service-control.mjs start更新本机兼容服务，NoProxy直连43187/health确认0.3.3、主体和SIFT ready；新扩展仍不依赖该服务，未改自启。fetch确认origin/main与起点一致，git diff --check通过。用户先导出需要保留的本次JSON，再重新加载项目extension并刷新TEMU；长期人工分类保留，未代用户重载扩展或清理存储。

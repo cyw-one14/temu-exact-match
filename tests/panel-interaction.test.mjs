@@ -214,6 +214,22 @@ test('simple result tabs keep one category visible, retain full details and supp
   ui.get('tab-pending').click();assert.equal(ui.get('pending-section').hidden,false);assert.equal(ui.get('pending-section').open,true);assert.equal(ui.get('matches-section').hidden,true);assert.ok(ui.get('pending-toggle'));ui.close();
 });
 
+test('price directions reorder captured amounts within their currency or printed symbol, keep missing prices last and retain details',async()=>{
+  const values=[['$8.00','unverified'],['$2.72','unverified'],['$2.72','unverified'],['CA$9.00','unverified'],['CA$1.50','unverified'],['$0.00','us'],['$4.00 – $7.00','us'],['','us'],['预估 $0.01','us']];
+  const items=values.map(([priceText,market],i)=>({...makeItem(String(601123456789080+i)),priceText,market}));
+  const ui=await mount(savedState(items));
+  try{
+    const select=ui.get('result-sort'),ids=()=>[...ui.get('exact-results').querySelectorAll('.product')].map(card=>card.dataset.productId);
+    assert.deepEqual([...select.querySelectorAll('option')].map(option=>option.textContent),['匹配程度优先','价格从低到高','价格从高到低','销量优先（相同口径）']);
+    const choose=value=>{for(const option of select.querySelectorAll('option')){option.removeAttribute('selected');if(option.value===value)option.setAttribute('selected','');}select.dispatchEvent(new ui.window.Event('change'));};
+    choose('price');assert.deepEqual(ids(),[1,2,0,4,3,5,6,7,8].map(i=>items[i].id));
+    choose('price-desc');assert.deepEqual(ids(),[0,1,2,3,4,6,5,7,8].map(i=>items[i].id));
+    assert.equal(ui.get('exact-results').querySelectorAll('.price-group').length,4);
+    const card=ui.get('exact-results').querySelector(`[data-product-id="${items[1].id}"]`);assert.doesNotMatch(card.querySelector('.product-top').textContent,/页面显示价|币种未确认/);assert.match(card.querySelector('.product-more').textContent,/页面显示价 · 币种未确认/);
+    const exported=await exportData(ui);assert.deepEqual(exported.products.map(item=>item.priceText),values.map(([raw])=>raw));assert.equal(exported.products.find(item=>item.id===items[1].id).market,'unverified');
+  }finally{ui.close();}
+});
+
 test('a new user sees a single upload path, then one start action, without an empty progress bar or expanded tools',async()=>{
   let ui=await mount({...savedState([]),referenceImage:''});assert.equal(ui.get('welcome').hidden,false);assert.equal(ui.get('reference').hidden,true);assert.equal(ui.get('analysis-progress').hidden,true);assert.equal(ui.get('provider-section').hidden,true);assert.equal(ui.get('results-section').hidden,true);assert.equal(ui.get('more-tools').hasAttribute('open'),false);ui.close();
   ui=await mount(savedState([]));assert.equal(ui.get('welcome').hidden,true);assert.equal(ui.get('analyze').hidden,false);assert.equal(ui.get('analyze').disabled,false);assert.equal(ui.get('analysis-progress').hidden,true);ui.close();

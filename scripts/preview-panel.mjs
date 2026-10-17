@@ -4,6 +4,8 @@ import http from 'node:http';
 import {COLLECTION_LIMIT} from '../shared/collection.mjs';
 import {readFile,readdir} from 'node:fs/promises';
 const root=new URL('../extension/',import.meta.url),files=new Set(await readdir(root));
+const port=Number(process.argv.find(value=>value.startsWith('--port='))?.slice(7)||43211);
+if(!Number.isInteger(port)||port<1024||port>65535)throw Error('Invalid preview port');
 const image='data:image/png;base64,'+(await readFile(new URL(process.argv.includes('--image-input')?'../.cache/ui-validation/reported-reference.png':'../.cache/subject-validation/glove-subject.png',import.meta.url))).toString('base64');
 const fixture={matchingPolicy:'title-groups-outline-v16',matchRevision:1,keywordPolicy:'best-sellers-v1',referenceImage:image,referenceSpecs:{},referenceContext:{message:'本地界面校验：标题和价格为测试数据，非 TEMU 查询结果。'},profile:{name:'界面测试参考图'},keywords:[],selectedQueries:[],items:[{id:'qa-fixture',title:'测试标题：绿色清洁手套，防滑掌纹与加长袖口，用于验证完整商品标题显示和复制（仅界面测试数据）',imageUrl:image,priceText:'USD 5.99',price:{raw:'USD 5.99',kind:'displayed',currency:'USD',low:5.99,source:'qa-fixture',sourceUrl:'http://127.0.0.1:43211/',capturedAt:new Date().toISOString()},sales:{kind:'unknown',period:'unknown',lowerBound:null},status:'visual-match',matchSource:'automated',autoAttempt:1,market:'us',capturedAt:new Date().toISOString(),url:'http://127.0.0.1:43211/',evidence:['仅校验界面，非真实商品判断'],missing:['测试数据未提供规格']}],pages:[],lastRun:new Date().toISOString()};
 if(process.argv.includes('--image-input')){
@@ -20,6 +22,10 @@ if(process.argv.includes('--collection')){
   fixture.collection={source:'provider',tabId:0,status:'paused',reason:'limit-reached',limit:COLLECTION_LIMIT,analysisTotal:COLLECTION_LIMIT,total:COLLECTION_LIMIT,productIds:fixture.items.map(item=>item.id),pageKeys:['界面测试结果页1','界面测试结果页2'],queryKey:'qa-only',query:'界面测试'};
   fixture.collectionHistory=[];
   fixture.pages=[{url:'http://127.0.0.1:43211/?qa-page=1'},{url:'http://127.0.0.1:43211/?qa-page=2'}];
+}
+if(process.argv.includes('--prices')){
+  const template=fixture.items[0];
+  fixture.items=[2.72,1.39,8.50].map((amount,i)=>({...template,id:'qa-price-'+i,title:'价格排序测试商品 '+(i+1)+'（仅界面测试数据）',priceText:'$'+amount.toFixed(2),price:{...template.price,raw:'$'+amount.toFixed(2),currency:'',low:amount,high:amount,amount},market:'unverified',subjectAttempt:1}));
 }
 const interactive=process.argv.includes('--interaction');
 const remember=process.argv.includes('--memory');
@@ -57,4 +63,4 @@ const server=http.createServer(async(req,res)=>{
   if(!files.has(name)){res.writeHead(404);res.end();return;}
   res.setHeader('Content-Type',/\.(?:js|mjs)$/.test(name)?'text/javascript':/\.css$/.test(name)?'text/css':/\.png$/.test(name)?'image/png':'text/html');res.end(await readFile(new URL(name,root)));
 });
-server.listen(43211,'127.0.0.1',()=>console.log('UI fixture: http://127.0.0.1:43211/'));
+server.listen(port,'127.0.0.1',()=>console.log('UI fixture: http://127.0.0.1:'+port+'/'));
