@@ -143,6 +143,16 @@ test('a failed connection has a visible progress error and preserves the unconfi
   assert.equal(ui.get('analysis-progress').dataset.phase,'error');assert.equal(ui.get('exact-results').children.length,0);assert.equal(ui.saved.items[0].status,'pending');ui.close();
 });
 
+test('a failed image download can be rechecked without retaining its old error or losing the captured product fields',async()=>{
+  const item=makeItem('601123456789097','pending');delete item.autoAttempt;delete item.subjectAttempt;let fail=true;
+  const ui=await mount(savedState([item]),{compare:()=>{if(fail)throw Error("Failed to execute 'fetch' on 'WorkerGlobalScope': Illegal invocation");return {status:'visual-match',samePhoto:true,imageSimilarity:1,evidence:['TEST recovered image']};}});
+  try{
+    await until(()=>ui.saved?.items[0].priorityError&&ui.get('cancel').hidden);assert.equal(ui.saved.items[0].status,'pending');assert.equal(ui.get('exact-results').children.length,0);
+    fail=false;ui.get('compare-collected').click();await until(()=>ui.saved?.items[0].status==='visual-match'&&ui.get('cancel').hidden);
+    assert.equal(ui.saved.items[0].priorityError,undefined);assert.equal(ui.saved.items[0].title,item.title);assert.equal(ui.saved.items[0].priceText,item.priceText);assert.equal(ui.get('exact-results').children.length,1);
+  }finally{ui.close();}
+});
+
 test('a new analysis remembers both decisions across gallery/title changes but keeps other reference products and sources separate',async()=>{
   const selection={id:'TEST first query',productId:'601123456789900',imageUrl:'https://img.kwcdn.com/first-gallery.jpg'};
   const items=[makeItem('601123456789011'),makeItem('601123456789012','different')];

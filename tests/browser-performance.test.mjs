@@ -6,6 +6,12 @@ import {pruneDescriptors} from '../browser/descriptor-cache.mjs';
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const response=text=>({ok:true,headers:new Headers(),body:new ReadableStream({start(controller){controller.enqueue(Buffer.from(text));controller.close();}})});
 
+test('the default browser fetch retains its global receiver when called by the image loader',async()=>{
+  const original=globalThis.fetch;let calls=0;
+  globalThis.fetch=async function(url,options){assert.equal(this,globalThis,'native Worker fetch requires its global receiver');assert.equal(url,'https://img.kwcdn.com/native.jpg');assert.equal(options.credentials,'omit');calls++;return response('native-image');};
+  try{const loader=new ImageLoader({allowed:()=>true,decode:async bytes=>bytes});assert.equal((await loader.get('https://img.kwcdn.com/native.jpg')).buffer.toString(),'native-image');assert.equal(calls,1);}finally{globalThis.fetch=original;}
+});
+
 test('captured image downloads overlap at most three, deduplicate in-flight work and keep out-of-order bytes bound to their URLs',async()=>{
   const gates=new Map(),calls=[];
   const loader=new ImageLoader({allowed:url=>url.startsWith('https://img.kwcdn.com/'),decode:async bytes=>bytes,decodeData:()=>{throw Error('unused');},fetchImage:(url,options)=>{calls.push({url,options});return new Promise(resolve=>gates.set(url,resolve));}});

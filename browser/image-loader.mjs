@@ -1,6 +1,7 @@
 // Only downloads/decoding overlap; all model and Python jobs stay serialized.
 export class ImageLoader{
-  constructor({decode,allowed,decodeData,fetchImage=fetch,parallel=3,capacity=64}){Object.assign(this,{decode,allowed,decodeData,fetchImage,parallel,capacity});this.cache=new Map();this.queue=[];this.active=0;}
+  // Native Worker fetch must retain its global receiver when stored as a method.
+  constructor({decode,allowed,decodeData,fetchImage=fetch,parallel=3,capacity=64}){Object.assign(this,{decode,allowed,decodeData,fetchImage:fetchImage.bind(globalThis),parallel,capacity});this.cache=new Map();this.queue=[];this.active=0;}
   get(url){
     if(this.cache.has(url)){const job=this.cache.get(url);this.cache.delete(url);this.cache.set(url,job);return job;}
     const task=new Promise((resolve,reject)=>{this.queue.push({url,resolve,reject});});
