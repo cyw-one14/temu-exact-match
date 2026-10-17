@@ -4,19 +4,22 @@ import {officialImage,providerSearchURL,providerListingTitle,normalizeProviderPa
 import {priceObservation,priceKindLabel} from './prices.mjs';
 import {listingMetadata,LISTING_LABELS} from './listing.mjs';
 import {COLLECTION_LIMIT,limitedCandidates,createCollection,pauseCollection,resumeCollection,collectionDecision,recordCollectionAdvance,collectionText} from './collection.mjs';
+import {referenceMemoryKey,candidateMemoryKey,memoryStorageKey,memoryRecord} from './manual-memory.mjs';
 
 const $=id=>document.getElementById(id);
 const SERVICE='http://127.0.0.1:43187';
 const windowId=(await chrome.windows.getCurrent()).id;
 const stateKey='temuMatch:'+windowId,selectionKey='temuSelection:'+windowId;
 const MATCHING_POLICY='title-groups-outline-v16';
-const emptyState=()=>({matchingPolicy:MATCHING_POLICY,matchRevision:1,referenceContext:null,keywordPolicy:'best-sellers-v1',referenceImage:'',referenceSpecs:{},profile:null,keywords:[],keywordSources:{},selectedQueries:[],items:[],pages:[],lastRun:null,selection:null,providerJob:null,collection:null,collectionHistory:[]});
+const emptyState=()=>({matchingPolicy:MATCHING_POLICY,matchRevision:1,manualReferenceKey:'',referenceContext:null,keywordPolicy:'best-sellers-v1',referenceImage:'',referenceSpecs:{},profile:null,keywords:[],keywordSources:{},selectedQueries:[],items:[],pages:[],lastRun:null,selection:null,providerJob:null,collection:null,collectionHistory:[]});
 let state=emptyState();
 let busy=false,cancelled=false,healthTimer=null;
 let providerTimer=null,providerReading=false,queuedSelection=null,selectionProcessing=false;
 let autoPending=false,autoTimer=null,autoPaused=false,serviceAvailable=false;
 let storageWarning='';
 let activity=null,analysisError='';
+let manualRecord=null,manualWarning='',manualReadEpoch=0;
+const pendingManual=new Map();
 const requestControllers=new Set();
 const tempTabs=new Set();
 
@@ -94,6 +97,36 @@ async function save(){
   state.referenceSpecs=getSpecs();
   try{await chrome.storage.session.set({[stateKey]:state});storageWarning='';}catch{storageWarning='浏览器会话存储空间不足：数据仍在当前侧栏内，请保持侧栏打开并导出 JSON。';}
   if(storageWarning){$('collection-section').hidden=false;$('collection-status').textContent=collectionText(state.collection)+' '+storageWarning;}
+}
+function applyManualMemory(){
+  if(!manualRecord||manualRecord.referenceKey!==state.manualReferenceKey)return;
+  for(const item of state.items){
+    const key=candidateMemoryKey(item);if(pendingManual.get(state.manualReferenceKey+'|'+key)===state)continue;
+    const entry=manualRecord.entries[key];
+    if(entry&&entry.decision!=='automatic')item.manualClassification={...entry,persistent:true,referenceKey:state.manualReferenceKey};
+    else if(entry||item.manualClassification?.persistent)delete item.manualClassification;
+  }
+}
+function acceptManualRecord(raw,{reset=false}={}){
+  const record=memoryRecord(raw,state.manualReferenceKey);
+  if(!reset&&manualRecord?.referenceKey===record.referenceKey&&record.revision<manualRecord.revision)return;
+  manualRecord=record;applyManualMemory();
+}
+async function loadManualMemory(){
+  const current=state;manualRecord=null;manualWarning='';manualReadEpoch++;
+  try{
+    const referenceKey=await referenceMemoryKey(current);if(current!==state)return;
+    state.manualReferenceKey=referenceKey;if(!referenceKey)return;
+    const epoch=manualReadEpoch,key=memoryStorageKey(referenceKey),saved=await chrome.storage.local.get(key);
+    if(current!==state)return;
+    if(epoch===manualReadEpoch)acceptManualRecord(saved[key]);
+    const legacy=state.items.filter(item=>manualDecision(item)&&!item.manualClassification.persistent&&candidateMemoryKey(item)&&!manualRecord?.entries[candidateMemoryKey(item)]).map(item=>({candidateKey:candidateMemoryKey(item),decision:manualDecision(item),updatedAt:item.manualClassification.updatedAt}));
+    if(legacy.length){
+      const response=await chrome.runtime.sendMessage({type:'manual-memory-update',referenceKey,entries:legacy,onlyMissing:true});
+      if(!response?.ok||!response.record)throw new Error(response?.error||'旧人工分类无法迁移到长期存储');
+      if(current===state)acceptManualRecord(response.record);
+    }
+  }catch(error){if(current===state)manualWarning='历史人工分类暂时无法读取或保存：'+error.message+'。本次调整仍可重试。';}
 }
 function addKeyword(query){
   query=String(query||'').trim().slice(0,180);
@@ -185,7 +218,7 @@ function card(item,lead=false){
   meta.append(node('span','',item.sales?.raw||'销量未展示'));info.append(meta);
   const badge=item.status==='outline-match'?'同款 · 主体轮廓相似 · 轮廓补充':item.status==='rule-match'?'同款 · 标题相似 / 主体颜色相近':item.status==='inferred-match'?'旧版推定结果 · 等待重新核对':item.status==='exact'?'同款 · 图片主体一致 · 自动确认':item.status==='visual-match'?(item.matchStage==='page-image'?'同款 · 同图匹配 · 自动确认':item.instanceMatch?.matched?'同款本体 · 图中完整实例已核验':item.fastMatch?.matched?'同款 · 主体一致 · 快速图像核验':'同款 · 主体一致 · 自动核对'):item.status==='different'?'已排除 · '+(item.reason||'图片主体存在差异'):item.autoAttempt===state.matchRevision?'无法自动确认 · 不参与推荐':'等待工具自动核对';
   info.append(node('span','badge'+(manual?' manual-badge':''),manual?(manual==='same'?'人工归为同款':'人工标为非同款'):badge));top.append(info);article.append(top);
-  if(manual)article.append(node('p','manual-note','你已调整此商品分类，后续自动核对不会覆盖。可随时恢复自动判断；仅对本次参考图分析生效。'));
+  if(manual)article.append(node('p','manual-note',item.manualClassification.persistent?'已记住你的分类。下次查询同一参考商品时自动沿用；可点“恢复自动判断”取消记忆。':'你已调整此商品分类，后续自动核对不会覆盖。正在保存，缺少可靠标识的条目仅在本次分析保留。'));
   article.append(node('p','product-note',(item.salesSource==='provider-visible'?'来源：特卖数据图搜':'来源：TEMU 页面')+' · '+(item.market==='us'?'美国站':'国家站尚未核实')+' · '+periodText(item.sales)+' · 采集 '+new Date(item.capturedAt).toLocaleString('zh-CN')));
   if(price.sourceUrl)article.append(node('p','product-note','价格来源：'+(price.source==='provider-visible'?'特卖数据页面':'TEMU 商品页')+' · '+new Date(price.capturedAt).toLocaleString('zh-CN')));
   const autoNotes=node('div');
@@ -248,20 +281,42 @@ function card(item,lead=false){
     const exclude=node('button','','标为非同款');exclude.type='button';exclude.dataset.action='different';exclude.addEventListener('click',()=>adjustClassification(item,'different'));actions.append(exclude);
   }
   if(manual){const restore=node('button','quiet','恢复自动判断');restore.type='button';restore.dataset.action='restore';restore.addEventListener('click',()=>adjustClassification(item,null));actions.append(restore);}
+  if(pendingManual.get(state.manualReferenceKey+'|'+candidateMemoryKey(item))===state)for(const button of actions.querySelectorAll('[data-action]'))button.disabled=true;
   article.append(actions);return article;
 }
 
 async function adjustClassification(displayItem,decision){
   // Ranked cards are copies. Resolve back to the captured source + product ID.
   const item=state.items.find(value=>value.id===displayItem.id&&(value.salesSource||'temu-visible')===(displayItem.salesSource||'temu-visible'));
-  if(!item)return;
+  if(!item)return;const current=state,key=candidateMemoryKey(item),referenceKey=state.manualReferenceKey,pair=referenceKey+'|'+key;
+  if(pendingManual.get(pair)===current)return;
+  const finish=()=>{if(pendingManual.get(pair)===current)pendingManual.delete(pair);};
+  const previous=item.manualClassification;pendingManual.set(pair,current);
   if(decision)item.manualClassification={decision,source:'user',updatedAt:new Date().toISOString()};else delete item.manualClassification;
+  render();
+  try{
+    if(referenceKey&&key){
+      const response=await chrome.runtime.sendMessage({type:'manual-memory-update',referenceKey,entries:[{candidateKey:key,decision:decision||'automatic'}]});
+      if(!response?.ok||!response.record)throw new Error(response?.error||'浏览器未能保存分类');
+      if(current!==state)return;
+      finish();acceptManualRecord(response.record);manualWarning='';
+    }else manualWarning='此条目缺少可靠的参考图或商品ID，只在本次分析保留，尚未写入长期记忆。';
+  }catch(error){
+    if(current!==state)return;
+    if(previous)item.manualClassification=previous;else delete item.manualClassification;
+    manualWarning='人工调整未保存，已恢复原分类：'+error.message+'。请稍后重试。';
+    finish();render();await save();status(manualWarning,true);return;
+  }finally{finish();}
+  if(current!==state)return;
   render();await save();
-  status((decision==='same'?'已归为同款':decision==='different'?'已移到非同款分类':'已恢复自动判断')+'，同款数量、销量 Top10 与关键词已更新。'+(storageWarning?storageWarning:'已保存到本次分析。'),Boolean(storageWarning));
+  if(current!==state)return;
+  status((decision==='same'?'已归为同款':decision==='different'?'已移到非同款分类':'已恢复自动判断')+'，同款数量、销量 Top10 与关键词已更新。'+(manualWarning||((referenceKey&&key)?decision?'已长期记住，下次查询同一参考商品会沿用。':'已取消这条分类记忆。':'已保存到本次分析。'))+(storageWarning?' '+storageWarning:''),Boolean(storageWarning||manualWarning));
   if(!decision)requestAutoCompare();
 }
 
 function render(){
+  applyManualMemory();
+  $('manual-memory-status').textContent=manualWarning||'人工分类长期保存在当前浏览器，关闭浏览器或重启电脑后仍保留；再次查询同一参考商品时沿用。';
   $('reference').hidden=!state.referenceImage;
   document.querySelector('.upload-label').hidden=Boolean(state.referenceImage);
   if(state.referenceImage)$('reference-image').src=state.referenceImage;
@@ -513,6 +568,7 @@ async function acceptSelection(value){
     const selected=queuedSelection;queuedSelection=null;cancelled=false;stopProviderWatch();
     autoPending=false;autoPaused=false;activity=null;analysisError='';
     state={...emptyState(),referenceImage:selected.imageUrl,selection:selected,profile:{name:selected.title||'网页选中商品',description:'已提取网页商品图片，结果出现后自动核对。'}};
+    await loadManualMemory();if(queuedSelection)continue;
     for(const key of SPEC_KEYS)$('spec-'+key).value='';
     render();status('已选中网页商品图片。正在打开选品助手图搜…');
     const prefs=(await chrome.storage.local.get('preferences')).preferences||{};
@@ -735,7 +791,7 @@ $('upload').addEventListener('change',()=>run(async()=>{
   const file=$('upload').files?.[0];if(!file)return;
   if(file.size>8_000_000||!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('请使用 8 MB 以下的 PNG、JPG 或 WebP 图片');
   const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('图片读取失败'));reader.readAsDataURL(file);});
-  stopProviderWatch();autoPending=false;autoPaused=false;activity=null;analysisError='';state={...emptyState(),referenceImage:data,referenceSpecs:getSpecs()};
+  stopProviderWatch();autoPending=false;autoPaused=false;activity=null;analysisError='';state={...emptyState(),referenceImage:data,referenceSpecs:getSpecs()};await loadManualMemory();
   render();status('图片已上传，图搜结果出现后工具会自动核对。');
 }));
 $('replace-image').addEventListener('click',()=>{$('upload').value='';$('upload').click();});
@@ -773,7 +829,7 @@ $('settings').addEventListener('click',()=>chrome.runtime.openOptionsPage());
 $('result-sort').addEventListener('change',render);
 $('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('模型正在加载，完成后可以识别图片。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.2.15',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,imageSearchInput:state.providerJob?.submittedInput||null,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.2.16',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||null,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
@@ -793,7 +849,12 @@ try{
   }
   if(saved&&saved.matchingPolicy!==MATCHING_POLICY){state.matchingPolicy=MATCHING_POLICY;for(const item of state.items){item.status='unreviewed';item.matchSource=null;item.evidence=[];item.missing=[];item.differences=[];delete item.subject;delete item.outlineMatch;delete item.fastMatch;delete item.instanceMatch;delete item.matchedReferenceImageUrl;delete item.referenceEvidence;delete item.titleEvidence;delete item.listingColorMatch;delete item.subjectReview;delete item.subjectDifferences;delete item.visualChecks;delete item.checks;delete item.listingDifferences;delete item.packDifference;delete item.priorityScore;delete item.pageImagePriority;delete item.matchStage;delete item.subjectAttempt;delete item.autoAttempt;}}
 }catch{}
-chrome.storage.onChanged.addListener((changes,area)=>{if(area==='session'&&changes[selectionKey]?.newValue)acceptSelection(changes[selectionKey].newValue);});
+chrome.storage.onChanged.addListener((changes,area)=>{
+  if(area==='session'&&changes[selectionKey]?.newValue)acceptSelection(changes[selectionKey].newValue);
+  const key=memoryStorageKey(state.manualReferenceKey);
+  if(area==='local'&&key&&changes[key]){manualReadEpoch++;acceptManualRecord(changes[key].newValue,{reset:changes[key].newValue===undefined});render();save();requestAutoCompare();}
+});
+await loadManualMemory();
 render();
 if(state.providerJob){$('provider-status').textContent='已恢复上次图搜记录。点击“读取 / 继续同步图搜结果”继续。';if(!state.collection)watchProvider();}
 const selected=(await chrome.storage.session.get(selectionKey))[selectionKey];if(selected)await acceptSelection(selected);

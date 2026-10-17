@@ -21,18 +21,28 @@ if(process.argv.includes('--collection')){
   fixture.pages=[{url:'http://127.0.0.1:43211/?qa-page=1'},{url:'http://127.0.0.1:43211/?qa-page=2'}];
 }
 const interactive=process.argv.includes('--interaction');
+const remember=process.argv.includes('--memory');
 if(interactive){
   const template=fixture.items[0];
   fixture.referenceContext={collectionRevision:'declared-product-v1',title:'界面测试参考图'};
   fixture.items=Array.from({length:5},(_,i)=>({...template,id:'qa-interaction-'+i,title:'界面测试商品 '+(i+1)+' · 清洁手套（仅测试数据）',status:i===0?'visual-match':i===1?'different':'pending',subjectAttempt:i<2?1:undefined,sales:{raw:(100-i)+' sold',kind:'exact',lowerBound:100-i,exact:true,period:'unknown'}}));
 }
-const bootstrap=`const fixture=${JSON.stringify(fixture)}; globalThis.chrome={windows:{getCurrent:async()=>({id:1})},storage:{onChanged:{addListener:()=>{}},session:{get:async()=>({'temuMatch:1':fixture}),set:async()=>{}},local:{get:async()=>({})}},runtime:{openOptionsPage:async()=>{}},tabs:{}};
+if(remember){
+  const template=fixture.items[0];fixture.profile={name:'界面测试参考图 · 长期记忆校验'};
+  fixture.selection={id:'qa-memory-reference',productId:'601999999999900',imageUrl:'https://img.kwcdn.com/qa-memory-reference.jpg'};
+  fixture.referenceContext={collectionRevision:'declared-product-v1',title:'界面测试参考商品'};
+  fixture.items=[0,1].map(i=>({...template,id:String(601999999999901+i),title:'长期记忆测试商品 '+(i+1)+'（仅界面测试数据）',status:i?'different':'visual-match',subjectAttempt:1}));
+}
+const bootstrap=`import {ManualMemoryStore} from '/manual-memory.mjs';const fixture=${JSON.stringify(fixture)};
+const localData=JSON.parse(localStorage.getItem('temu-qa-manual-memory')||'{}'),listeners=[];
+const local={get:async key=>({[key]:localData[key]}),set:async data=>{Object.assign(localData,data);localStorage.setItem('temu-qa-manual-memory',JSON.stringify(localData));for(const listener of listeners)listener(Object.fromEntries(Object.entries(data).map(([key,newValue])=>[key,{newValue}])),'local');}};
+const memory=new ManualMemoryStore(local);globalThis.chrome={windows:{getCurrent:async()=>({id:1})},storage:{onChanged:{addListener:fn=>listeners.push(fn)},session:{get:async()=>({'temuMatch:1':fixture}),set:async()=>{}},local},runtime:{openOptionsPage:async()=>{},sendMessage:async message=>message.type==='manual-memory-update'?{ok:true,record:await memory.update(message)}:{ok:false,error:'测试页不运行真实图搜'}},tabs:{}};
 const queue=[];globalThis.fetch=async(url,options)=>{if(url.endsWith('/compare'))return new Promise(resolve=>{queue.push(()=>resolve({ok:true,json:async()=>({ok:true,comparison:{status:'visual-match',evidence:['仅界面测试的核对响应'],missing:[]}})}));options.signal.addEventListener('abort',()=>resolve({ok:true,json:async()=>({ok:true,comparison:{status:'pending'}})}),{once:true});});return {ok:true,json:async()=>({engine:'local',model:{state:'ready',message:'界面测试 · 无真实查询',progress:100}})};};
-document.getElementById('qa-finish')?.addEventListener('click',()=>queue.shift()?.());await import('/panel.js');`;
+document.getElementById('qa-finish')?.addEventListener('click',()=>queue.shift()?.());document.getElementById('qa-clear-memory')?.addEventListener('click',()=>{localStorage.removeItem('temu-qa-manual-memory');location.reload();});await import('/panel.js');`;
 const server=http.createServer(async(req,res)=>{
   const name=new URL(req.url,'http://127.0.0.1:43211').pathname.slice(1);
   if(name==='qa.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bootstrap);return;}
-  if(!name){res.setHeader('Content-Type','text/html');res.end((await readFile(new URL('panel.html',root),'utf8')).replace('src="panel.js"','src="qa.mjs"').replace('<h1>TEMU 同款助手</h1>','<h1>界面校验 · 测试数据</h1>').replace('<main>',(interactive?'<button id="qa-finish" type="button">测试：完成一条主体核对</button>':'')+'<main>'));return;}
+  if(!name){res.setHeader('Content-Type','text/html');res.end((await readFile(new URL('panel.html',root),'utf8')).replace('src="panel.js"','src="qa.mjs"').replace('<h1>TEMU 同款助手</h1>','<h1>界面校验 · 测试数据</h1>').replace('<main>',(interactive?'<button id="qa-finish" type="button">测试：完成一条主体核对</button>':'')+(remember?'<p>每次刷新重新载入测试候选，仅保留人工分类记忆。</p><button id="qa-clear-memory" type="button">清除测试记忆</button>':'')+'<main>'));return;}
   if(!files.has(name)){res.writeHead(404);res.end();return;}
   res.setHeader('Content-Type',/\.(?:js|mjs)$/.test(name)?'text/javascript':/\.css$/.test(name)?'text/css':/\.png$/.test(name)?'image/png':'text/html');res.end(await readFile(new URL(name,root)));
 });

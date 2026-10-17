@@ -39,7 +39,8 @@
     <div class="section-header"><h2>同款价格与标题</h2><span id="count"></span></div>
     <label for="result-sort" class="visually-hidden">结果排序</label><select id="result-sort"><option value="match">主体匹配程度优先</option><option value="price">页面 USD 价格 / 起价从低到高</option><option value="sales">页面销量从高到低（按口径分组）</option></select>
     <p id="scope" class="hint"></p>
-    <p class="hint">判断有误时，可在商品卡片上点“移出同款”或“归为同款”。人工调整随本次分析保存，可恢复自动判断。</p>
+    <p class="hint">判断有误时，可点“移出同款”或“归为同款”。再次查询同一参考商品时会记住调整，也可“恢复自动判断”。</p>
+    <p id="manual-memory-status" class="hint" role="status" aria-live="polite">人工分类长期保存在当前浏览器，关闭浏览器或重启电脑后仍保留。</p>
     <div id="exact-results"></div>
     <div id="empty" class="empty" hidden><strong>暂无已确认的主体同款</strong><p>工具自动判断后会在这里展示真实标题、价格与商品链接。</p></div>
     <details id="pending-section"><summary id="pending-count">自动处理 / 无法确认</summary><div id="pending-results"></div></details>

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {parseHTML} from 'linkedom';
 import {parseSales} from '../shared/core.mjs';
+import {ManualMemoryStore,memoryStorageKey,referenceMemoryKey,candidateMemoryKey} from '../extension/manual-memory.mjs';
 
 // Isolated, explicitly synthetic UI data; never enters a production query.
 const html=await readFile(new URL('../extension/panel.html',import.meta.url),'utf8');
@@ -12,10 +13,13 @@ const savedState=items=>({referenceImage:image,referenceSpecs:{},profile:{name:'
 const delay=()=>new Promise(resolve=>setTimeout(resolve,5));
 async function until(check){for(let i=0;i<400;i++){if(check())return;await delay();}assert.fail('UI did not reach expected state');}
 let mountCount=0;
-async function mount(saved,{compare,selection=null,provider=null,storageFails=false}={}){
+async function mount(saved,{compare,selection=null,provider=null,storageFails=false,localData={},memoryFails=false}={}){
   const {document,window}=parseHTML(html);globalThis.document=document;globalThis.window=window;
   let lastSaved=null;const requests=[],messages=[];
-  globalThis.chrome={windows:{getCurrent:async()=>({id:1})},storage:{session:{get:async()=>({'temuMatch:1':structuredClone(saved),'temuSelection:1':selection}),set:async data=>{if(storageFails)throw Error('TEST quota');lastSaved=structuredClone(data['temuMatch:1']);}},local:{get:async()=>({preferences:{onImageClick:'local'}})},onChanged:{addListener:()=>{}}},tabs:{create:()=>{throw Error('No navigation during UI adjustments');}},runtime:{sendMessage:async message=>{messages.push(message);return {ok:true,data:provider};}}};
+  const changeListeners=[];
+  const local={get:async key=>({[key]:structuredClone(localData[key]),preferences:{onImageClick:'local'}}),set:async data=>{if(memoryFails)throw Error('TEST local quota');Object.assign(localData,structuredClone(data));for(const listener of changeListeners)listener(Object.fromEntries(Object.entries(data).map(([key,newValue])=>[key,{newValue:structuredClone(newValue)}])),'local');}};
+  const memory=new ManualMemoryStore(local);
+  globalThis.chrome={windows:{getCurrent:async()=>({id:1})},storage:{session:{get:async()=>({'temuMatch:1':structuredClone(saved),'temuSelection:1':selection}),set:async data=>{if(storageFails)throw Error('TEST quota');lastSaved=structuredClone(data['temuMatch:1']);}},local,onChanged:{addListener:fn=>changeListeners.push(fn)}},tabs:{create:()=>{throw Error('No navigation during UI adjustments');}},runtime:{sendMessage:async message=>{messages.push(message);if(message.type==='manual-memory-update'){try{return {ok:true,record:await memory.update(message)};}catch(error){return {ok:false,error:error.message};}}return {ok:true,data:provider};}}};
   globalThis.fetch=async(url,options)=>{
     if(url.endsWith('/health'))return {ok:true,json:async()=>({engine:'local',model:{state:'ready',progress:100,message:'TEST ready'}})};
     const body=JSON.parse(options.body);requests.push(body);
@@ -23,7 +27,7 @@ async function mount(saved,{compare,selection=null,provider=null,storageFails=fa
     return {ok:true,json:async()=>({ok:true,comparison:comparison||{status:'pending'}})};
   };
   await import('../extension/panel.js?interaction='+(++mountCount));
-  return {document,window,requests,messages,get saved(){return lastSaved;},get:(id)=>document.getElementById(id),close(){window.dispatchEvent(new window.Event('pagehide'));}};
+  return {document,window,requests,messages,localData,changeListeners,get saved(){return lastSaved;},get:(id)=>document.getElementById(id),close(){window.dispatchEvent(new window.Event('pagehide'));}};
 }
 const action=(ui,section,id,decision,source='provider-visible')=>ui.get(section).querySelector(`[data-product-id="${id}"][data-source="${source}"] [data-action="${decision}"]`);
 async function exportData(ui){let blob;const original=URL.createObjectURL;URL.createObjectURL=value=>{blob=value;return 'blob:test';};try{ui.get('export').click();return JSON.parse(await blob.text());}finally{URL.createObjectURL=original;}}
@@ -43,15 +47,15 @@ test('manual moves update only the selected source, rankings and export, survive
   assert.equal(data.products[0].effectiveStatus,'manual-different');assert.equal(data.products[0].status,'visual-match');assert.equal(data.products[0].keywordEvidence.length,0);
   assert.equal(data.products[1].effectiveStatus,'manual-match');assert.equal(data.products[1].status,'different');assert.equal(data.products[1].keywordEvidence[0].matchStatus,'manual-match');
   assert.deepEqual(data.products[0].evidence,['TEST retained automatic evidence']);assert.equal(data.products[0].title,originalTitle);assert.equal(data.products[0].priceText,'$5.99');
-  const restored=ui.saved;ui.close();
-  ui=await mount(restored);
+  const restored=ui.saved,localData=ui.localData;ui.close();
+  ui=await mount(restored,{localData});
   assert.equal(ui.get('exact-results').children.length,2);assert.equal(ui.requests.length,0);
   action(ui,'excluded-results','601123456789001','restore').click();await until(()=>ui.saved&&!ui.saved.items[0].manualClassification);
   assert.equal(ui.get('exact-results').children.length,3);assert.equal(ui.saved.items[0].status,'visual-match');
   ui.get('compare-collected').click();await until(()=>ui.get('cancel').hidden);
   assert.equal(ui.saved.items[1].manualClassification.decision,'same');assert.equal(ui.requests.length,0);
   const selected={id:'TEST new reference',windowId:1,imageUrl:'https://img.kwcdn.com/test-new-reference.jpg'};
-  const previous=ui.saved;ui.close();ui=await mount(previous,{selection:selected});
+  const previous=ui.saved;ui.close();ui=await mount(previous,{selection:selected,localData});
   assert.equal(ui.get('exact-results').children.length,0);assert.equal(ui.get('excluded-results').children.length,0);ui.close();
 });
 
@@ -63,7 +67,7 @@ test('uncertain hidden candidates can be classified and restored, and storage fa
   assert.equal(ui.get('exact-results').children.length,1);assert.match(ui.get('status').textContent,/存储空间不足/);
   assert.doesNotMatch(ui.get('status').textContent,/已保存到本次分析/);
   action(ui,'exact-results','601123456789003','restore').click();
-  assert.equal(ui.get('exact-results').children.length,0);assert.match(ui.get('pending-count').textContent,/共 1/);ui.close();
+  await until(()=>ui.get('exact-results').children.length===0);assert.match(ui.get('pending-count').textContent,/共 1/);ui.close();
 });
 
 test('provider updates preserve a manual correction while refreshing original fields and prices',async()=>{
@@ -105,4 +109,51 @@ test('a failed connection has a visible progress error and preserves the unconfi
   await until(()=>ui.get('progress-title').textContent==='处理遇到问题');
   assert.match(ui.get('progress-detail').textContent,/无法连接本机识别服务/);
   assert.equal(ui.get('analysis-progress').dataset.phase,'error');assert.equal(ui.get('exact-results').children.length,0);assert.equal(ui.saved.items[0].status,'pending');ui.close();
+});
+
+test('a new analysis remembers both decisions across gallery/title changes but keeps other reference products and sources separate',async()=>{
+  const selection={id:'TEST first query',productId:'601123456789900',imageUrl:'https://img.kwcdn.com/first-gallery.jpg'};
+  const items=[makeItem('601123456789011'),makeItem('601123456789012','different')];
+  let ui=await mount({...savedState(items),selection});
+  action(ui,'exact-results',items[0].id,'different').click();await until(()=>ui.saved?.items[0].manualClassification?.persistent);
+  action(ui,'excluded-results',items[1].id,'same').click();await until(()=>ui.saved?.items[1].manualClassification?.persistent);
+  const localData=ui.localData;ui.close();
+  // Start with entirely fresh listings: no previous session or manual fields.
+  const fresh=()=>({...savedState(items.map(item=>({...item,title:'TEST refreshed title '+item.id,priceText:'$4.12'}))),referenceImage:image,selection:{...selection,id:'TEST next day',imageUrl:'https://img.kwcdn.com/other-gallery.jpg'}});
+  ui=await mount(fresh(),{localData});
+  assert.match(ui.get('exact-results').textContent,/789012/);assert.match(ui.get('excluded-results').textContent,/789011/);assert.match(ui.get('exact-results').textContent,/已记住你的分类/);assert.equal(ui.requests.length,0);
+  assert.match(ui.get('exact-results').textContent,/\$4.12/);assert.equal((await exportData(ui)).products[1].manualClassification.referenceKey,'goods:601123456789900');ui.close();
+  ui=await mount({...fresh(),selection:{...selection,productId:'601123456789901'}},{localData});
+  assert.equal(ui.get('exact-results').querySelector('.product').dataset.productId,items[0].id);assert.doesNotMatch(ui.get('exact-results').textContent,/已记住/);ui.close();
+  const otherSource={...fresh(),items:items.map(item=>({...item,salesSource:'temu-visible'}))};ui=await mount(otherSource,{localData});
+  assert.equal(ui.get('exact-results').querySelector('.product').dataset.productId,items[0].id);assert.doesNotMatch(ui.get('exact-results').textContent,/已记住/);ui.close();
+});
+
+test('legacy corrections migrate once, and restoring automation cancels the memory even when an old session reappears',async()=>{
+  const legacyItem={...makeItem('601123456789013','different'),manualClassification:{source:'user',decision:'same',updatedAt:'2026-10-16T01:00:00Z'}};
+  const legacy=savedState([legacyItem]);let ui=await mount(legacy);
+  assert.match(ui.get('exact-results').textContent,/已记住你的分类/);
+  const localData=ui.localData,key=Object.keys(localData)[0];assert.equal(localData[key].entries[candidateMemoryKey(legacyItem)].updatedAt,'2026-10-16T01:00:00.000Z');
+  action(ui,'exact-results',legacyItem.id,'restore').click();await until(()=>ui.saved&&!ui.saved.items[0].manualClassification);
+  assert.equal(localData[key].entries[candidateMemoryKey(legacyItem)].decision,'automatic');ui.close();
+  ui=await mount(legacy,{localData});assert.equal(ui.get('exact-results').children.length,0);assert.equal(ui.get('excluded-results').children.length,1);assert.equal(ui.messages.filter(message=>message.type==='manual-memory-update').length,0);ui.close();
+});
+
+test('failed durable writes visibly roll back both a changed classification and a cancelled remembered correction',async()=>{
+  const item=makeItem('601123456789014'),saved=savedState([item]),referenceKey=await referenceMemoryKey(saved),key=memoryStorageKey(referenceKey);
+  const localData={[key]:{schema:1,referenceKey,revision:1,entries:{[candidateMemoryKey(item)]:{source:'user',decision:'different',updatedAt:'2026-10-16T01:00:00Z'}}}};
+  const ui=await mount(saved,{localData,memoryFails:true});
+  action(ui,'excluded-results',item.id,'same').click();await until(()=>ui.get('status').textContent.includes('人工调整未保存'));
+  assert.equal(ui.get('exact-results').children.length,0);assert.equal(ui.saved.items[0].manualClassification.decision,'different');assert.match(ui.get('manual-memory-status').textContent,/TEST local quota/);
+  action(ui,'excluded-results',item.id,'restore').click();await until(()=>ui.get('excluded-results').querySelector('[data-action="restore"]')?.disabled===false);
+  assert.equal(ui.get('exact-results').children.length,0);assert.equal(localData[key].entries[candidateMemoryKey(item)].decision,'different');assert.equal(ui.saved.items[0].manualClassification.persistent,true);ui.close();
+});
+
+test('storage updates from another panel refresh classifications, reject older revisions and respect cleared extension memory',async()=>{
+  const item=makeItem('601123456789015'),saved=savedState([item]),referenceKey=await referenceMemoryKey(saved),key=memoryStorageKey(referenceKey);
+  const ui=await mount(saved),record={schema:1,referenceKey,revision:2,entries:{[candidateMemoryKey(item)]:{source:'user',decision:'different',updatedAt:'2026-10-16T01:00:00Z'}}};
+  const change=value=>ui.changeListeners.forEach(listener=>listener({[key]:{newValue:value}},'local'));
+  change(record);assert.equal(ui.get('exact-results').children.length,0);assert.match(ui.get('excluded-results').textContent,/已记住/);
+  change({...record,revision:1,entries:{}});assert.equal(ui.get('exact-results').children.length,0);
+  change(undefined);assert.equal(ui.get('exact-results').children.length,1);assert.doesNotMatch(ui.get('exact-results').textContent,/已记住/);ui.close();
 });

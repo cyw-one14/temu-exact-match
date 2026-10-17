@@ -1,4 +1,7 @@
 import {officialImage} from './provider.mjs';
+import {ManualMemoryStore} from './manual-memory.mjs';
+
+const manualMemory=new ManualMemoryStore(chrome.storage.local);
 
 chrome.runtime.onInstalled.addListener(()=>chrome.sidePanel.setPanelBehavior({openPanelOnActionClick:true}));
 chrome.action.onClicked.addListener(tab=>openAssistant(tab.windowId));
@@ -10,6 +13,9 @@ function openPanelTab(windowId){return chrome.tabs.create({url:chrome.runtime.ge
 async function openAssistant(windowId){try{await openSidePanel(windowId);}catch{try{await openPanelTab(windowId);}catch{/* The browser may have closed the clicked window. */}}}
 chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
   if(sender.id!==chrome.runtime.id)return false;
+  if(message.type==='manual-memory-update'&&sender.url===chrome.runtime.getURL('panel.html')){
+    manualMemory.update(message).then(record=>sendResponse({ok:true,record})).catch(error=>sendResponse({ok:false,error:'人工分类长期保存失败：'+error.message}));return true;
+  }
   if(message.type==='image-picked'){
     if(!sender.tab||!/^https:\/\/www\.temu\.com\//.test(sender.tab.url||'')||!officialImage(message.selection?.imageUrl)){sendResponse({ok:false,error:'请选择正常 TEMU 页面上的商品图片'});return false;}
     // Call before any await so the content-script click keeps its user gesture.

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 const calls=[];let listener,tabFailure=null,tabUrl='https://attacker.example';
-globalThis.chrome={runtime:{id:'test-extension',getURL:path=>'chrome-extension://test-extension/'+path,onInstalled:{addListener:()=>{}},onMessage:{addListener:fn=>{listener=fn;}}},action:{onClicked:{addListener:()=>{}}},sidePanel:{open:options=>{calls.push({type:'open',options});return Promise.resolve();}},storage:{session:{set:async value=>{calls.push({type:'save',value});}}},tabs:{get:async()=>{if(tabFailure)throw tabFailure;return{url:tabUrl};}}};
+const durable={};
+globalThis.chrome={runtime:{id:'test-extension',getURL:path=>'chrome-extension://test-extension/'+path,onInstalled:{addListener:()=>{}},onMessage:{addListener:fn=>{listener=fn;}}},action:{onClicked:{addListener:()=>{}}},sidePanel:{open:options=>{calls.push({type:'open',options});return Promise.resolve();}},storage:{session:{set:async value=>{calls.push({type:'save',value});}},local:{get:async key=>({[key]:structuredClone(durable[key])}),set:async data=>Object.assign(durable,structuredClone(data))}},tabs:{get:async()=>{if(tabFailure)throw tabFailure;return{url:tabUrl};}}};
 await import('../extension/background.js');
 test('the image click opens the panel before asynchronous selection storage and carries only the selected image',async()=>{
   const response=await new Promise(resolve=>listener({type:'image-picked',selection:{imageUrl:'https://img.kwcdn.com/a.jpg',productId:'601123456789001',title:'Bottle'}},{id:'test-extension',tab:{id:3,windowId:2,url:'https://www.temu.com/search_result.html'}},resolve));
@@ -57,4 +58,16 @@ test('failed sidebar and fallback, or failed selection storage, return actionabl
     chrome.sidePanel.open=()=>Promise.reject(Error('Refused'));chrome.tabs.create=async()=>{tabs++;throw Error('Window closed');};let response=await request();assert.equal(response.ok,false);assert.match(response.error,/侧栏或助手标签页/);
     chrome.sidePanel.open=()=>Promise.resolve();chrome.storage.session.set=async()=>{throw Error('Session quota exceeded');};response=await request();assert.equal(response.ok,false);assert.match(response.error,/所选图片无法保存/);assert.equal(tabs,1);
   }finally{chrome.sidePanel.open=originalOpen;chrome.tabs.create=originalCreate;chrome.storage.session.set=originalSave;}
+});
+
+test('only assistant panels can persist user classification and storage failures return a visible error',async()=>{
+  const message={type:'manual-memory-update',referenceKey:'goods:601123456789900',entries:[{candidateKey:'provider-visible:601123456789001',decision:'same'}]};
+  assert.equal(listener(message,{id:'test-extension',url:'https://www.temu.com/'},()=>{}),false);
+  assert.equal(listener(message,{id:'another-extension',url:'chrome-extension://test-extension/panel.html'},()=>{}),false);
+  const sender={id:'test-extension',url:'chrome-extension://test-extension/panel.html'};
+  const response=await new Promise(resolve=>listener(message,sender,resolve));assert.equal(response.ok,true);assert.equal(response.record.entries[message.entries[0].candidateKey].decision,'same');
+  const original=chrome.storage.local.set;try{
+    chrome.storage.local.set=async()=>{throw Error('TEST quota');};const failed=await new Promise(resolve=>listener({...message,entries:[{...message.entries[0],decision:'different'}]},sender,resolve));
+    assert.equal(failed.ok,false);assert.match(failed.error,/人工分类长期保存失败/);assert.equal(durable['temuManual:v1:'+message.referenceKey].entries[message.entries[0].candidateKey].decision,'same');
+  }finally{chrome.storage.local.set=original;}
 });
