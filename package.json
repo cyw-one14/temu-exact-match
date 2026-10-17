@@ -1,6 +1,6 @@
 {
   "name": "temu-exact-match",
-  "version": "0.2.19",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "TEMU 美国站真实页面读取与严格同款分析浏览器插件",
@@ -12,13 +12,18 @@
     "test": "node --test tests/*.test.mjs",
     "prepare-model": "node scripts/prepare-model.mjs",
     "prepare-features": "node scripts/prepare-features.mjs",
-    "package": "node scripts/package.mjs"
+    "package": "node scripts/package.mjs",
+    "build:browser": "node scripts/prepare-browser-assets.mjs && node scripts/build-browser.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "3.8.1",
+    "@noble/hashes": "1.8.0",
+    "buffer": "6.0.3",
     "sharp": "0.34.5"
   },
   "devDependencies": {
-    "linkedom": "0.18.12"
+    "esbuild": "0.25.12",
+    "linkedom": "0.18.12",
+    "pyodide": "0.28.3"
   }
 }

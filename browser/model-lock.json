@@ -1,0 +1,101 @@
+{
+  "models": [
+    {
+      "id": "studioludens/birefnet-lite-512",
+      "revision": "962e67969ec6acec9c19fab76acee4f5e22e990c",
+      "files": [
+        "config.json",
+        "preprocessor_config.json",
+        "onnx/model.onnx"
+      ]
+    },
+    {
+      "id": "Xenova/dinov2-small",
+      "revision": "c2bb04a51fab207c420665f1946016107bffc701",
+      "files": [
+        "config.json",
+        "preprocessor_config.json",
+        "onnx/model_quantized.onnx"
+      ]
+    },
+    {
+      "id": "Xenova/clipseg-rd64-refined",
+      "revision": "924dc94f85f58739f353f94258b33bc47eae4862",
+      "files": [
+        "config.json",
+        "preprocessor_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "onnx/model_quantized.onnx"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "path": "models/studioludens/birefnet-lite-512/config.json",
+      "bytes": 81,
+      "sha256": "561965f7aa366c48b95ab1c24220d59a718df4025c2ecb359dd5736ceb49e912",
+      "source": "https://huggingface.co/studioludens/birefnet-lite-512/resolve/962e67969ec6acec9c19fab76acee4f5e22e990c/config.json"
+    },
+    {
+      "path": "models/studioludens/birefnet-lite-512/preprocessor_config.json",
+      "bytes": 389,
+      "sha256": "a79663b311d8404dfb329f7b45bc9f970a0c155aeedae8ac15b6b77d76789613",
+      "source": "https://huggingface.co/studioludens/birefnet-lite-512/resolve/962e67969ec6acec9c19fab76acee4f5e22e990c/preprocessor_config.json"
+    },
+    {
+      "path": "models/studioludens/birefnet-lite-512/onnx/model.onnx",
+      "bytes": 191877254,
+      "sha256": "1cb0fb360dadd15af77c639085d77a9df67db0c64315560c3de005f676345ac2",
+      "source": "https://huggingface.co/studioludens/birefnet-lite-512/resolve/962e67969ec6acec9c19fab76acee4f5e22e990c/onnx/model.onnx"
+    },
+    {
+      "path": "models/Xenova/dinov2-small/config.json",
+      "bytes": 899,
+      "sha256": "471007e1c59df520030a2690998f4e0ba5d810bc4f959d1984f630d198faa07e",
+      "source": "https://huggingface.co/Xenova/dinov2-small/resolve/c2bb04a51fab207c420665f1946016107bffc701/config.json"
+    },
+    {
+      "path": "models/Xenova/dinov2-small/preprocessor_config.json",
+      "bytes": 436,
+      "sha256": "14e780d86fa1861f8751f868d7f45425b5feb55c38ca26f152ca5097ab30f828",
+      "source": "https://huggingface.co/Xenova/dinov2-small/resolve/c2bb04a51fab207c420665f1946016107bffc701/preprocessor_config.json"
+    },
+    {
+      "path": "models/Xenova/dinov2-small/onnx/model_quantized.onnx",
+      "bytes": 24451943,
+      "sha256": "3afdc8bc63b50558d6e5770f5b799bb82455c2311183a2de43803f343a29d917",
+      "source": "https://huggingface.co/Xenova/dinov2-small/resolve/c2bb04a51fab207c420665f1946016107bffc701/onnx/model_quantized.onnx"
+    },
+    {
+      "path": "models/Xenova/clipseg-rd64-refined/config.json",
+      "bytes": 794,
+      "sha256": "17e418f04a7728ce054371b7536c11965a71f2af147ed9beed6b8e11eaefa7b9",
+      "source": "https://huggingface.co/Xenova/clipseg-rd64-refined/resolve/924dc94f85f58739f353f94258b33bc47eae4862/config.json"
+    },
+    {
+      "path": "models/Xenova/clipseg-rd64-refined/preprocessor_config.json",
+      "bytes": 378,
+      "sha256": "f0ae4c1dd6bffbbfbb9aa2f461489dd72b41f6906743a8bfd258532f09c0332c",
+      "source": "https://huggingface.co/Xenova/clipseg-rd64-refined/resolve/924dc94f85f58739f353f94258b33bc47eae4862/preprocessor_config.json"
+    },
+    {
+      "path": "models/Xenova/clipseg-rd64-refined/tokenizer.json",
+      "bytes": 2224080,
+      "sha256": "342739d4a4b111d4b1bda83a96f5c518e1b162cc597252ac89ded17681791d31",
+      "source": "https://huggingface.co/Xenova/clipseg-rd64-refined/resolve/924dc94f85f58739f353f94258b33bc47eae4862/tokenizer.json"
+    },
+    {
+      "path": "models/Xenova/clipseg-rd64-refined/tokenizer_config.json",
+      "bytes": 775,
+      "sha256": "d64e766f161ee704a0f5c90419b4d4181239d675e8176d94efdb1c64bbcb0055",
+      "source": "https://huggingface.co/Xenova/clipseg-rd64-refined/resolve/924dc94f85f58739f353f94258b33bc47eae4862/tokenizer_config.json"
+    },
+    {
+      "path": "models/Xenova/clipseg-rd64-refined/onnx/model_quantized.onnx",
+      "bytes": 139115836,
+      "sha256": "049010b152839f339d6115e668d560860d0031f7b750b24828c07167ba68812a",
+      "source": "https://huggingface.co/Xenova/clipseg-rd64-refined/resolve/924dc94f85f58739f353f94258b33bc47eae4862/onnx/model_quantized.onnx"
+    }
+  ]
+}

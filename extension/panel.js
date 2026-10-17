@@ -5,9 +5,9 @@ import {priceObservation,priceKindLabel} from './prices.mjs';
 import {listingMetadata,LISTING_LABELS} from './listing.mjs';
 import {COLLECTION_LIMIT,limitedCandidates,createCollection,pauseCollection,resumeCollection,collectionDecision,recordCollectionAdvance,collectionText} from './collection.mjs';
 import {referenceMemoryKey,candidateMemoryKey,memoryStorageKey,memoryRecord} from './manual-memory.mjs';
+import {engineRequest,closeEngine} from './engine-client.mjs';
 
 const $=id=>document.getElementById(id);
-const SERVICE='http://127.0.0.1:43187';
 const windowId=(await chrome.windows.getCurrent()).id;
 const stateKey='temuMatch:'+windowId,selectionKey='temuSelection:'+windowId;
 const MATCHING_POLICY='title-groups-outline-v16';
@@ -50,7 +50,7 @@ function renderProgress(){
   else if(analysisError){title='处理遇到问题';detail=analysisError;}
   else if(paused){title='核对已暂停';detail='已保留当前结果，点“继续核对”接着处理。';}
   else if(!total){title=blocked?'等待处理图搜页面':'等待商品结果';detail=$('provider-status').textContent;}
-  else if(waiting&&!busy&&!autoPending&&!autoTimer&&!serviceAvailable){title='等待识别服务';detail='本机服务连接后会继续核对，已读取商品保留。';}
+  else if(waiting&&!busy&&!autoPending&&!autoTimer&&!serviceAvailable){title='正在准备内置识别';detail='准备好后会自动核对，已读取商品保留。';}
   else if(!waiting&&!busy){title='核对完成';detail=pending?'还有 '+pending+' 条无法确认，可展开查看或重试。':'可以查看结果，也可以在卡片上调整分类。';}
   else if(!detail)detail=stage==='subject'?'正在比较主体细节，并按规则补充颜色与轮廓；单张图片可能需要较长时间。':'先核对已抓取的图片，再核对尚未确认的主体。';
   const max=collecting?COLLECTION_LIMIT:total,value=collecting?total:completed;
@@ -88,13 +88,12 @@ async function api(path,body){
   const controller=new AbortController();requestControllers.add(controller);
   const timeout=setTimeout(()=>controller.abort(),180_000);
   try{
-    const response=await fetch(SERVICE+path,{method:body?'POST':'GET',headers:{'X-Temu-Client':'exact-match',...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:controller.signal});
-    const result=await response.json();
-    if(!response.ok||result.ok===false)throw new Error(result.error||'本机服务返回错误');
+    const result=await engineRequest(path,body,{signal:controller.signal});
+    if(result.ok===false)throw new Error(result.error||'浏览器识别返回错误');
     return result;
   }catch(error){
-    if(error.name==='AbortError')throw new Error(cancelled?'本次检索已停止':'识别服务响应超时，请稍后重试');
-    if(error instanceof TypeError)throw new Error('无法连接本机识别服务，请先双击项目中的“启动服务.cmd”');
+    if(error.name==='AbortError')throw new Error(cancelled?'本次检索已停止':'浏览器识别超时，请稍后重试');
+    if(error instanceof TypeError)throw new Error('浏览器识别初始化失败，请重新打开侧栏后重试');
     throw error;
   }finally{clearTimeout(timeout);requestControllers.delete(controller);}
 }
@@ -777,7 +776,7 @@ async function compareItems({automatic=false}={}){
       if(cancelled)throw error;
       failures++;item.missing=[...(item.missing||[]),'读取或核对失败：'+error.message];
       if(!isProductMatch(item))item.status='pending';
-      if(error.message.includes('安全验证')||error.message.includes('本机识别服务')){render();await save();throw error;}
+      if(error.message.includes('安全验证')||error.message.includes('浏览器识别初始化失败')){render();await save();throw error;}
     }finally{if(!cancelled)item.autoAttempt=state.matchRevision;}
     if(item.status==='pending'&&!item.priorityError)review.push(item);
     render();await save();
@@ -803,7 +802,7 @@ async function compareItems({automatic=false}={}){
     }catch(error){
       if(cancelled)throw error;
       failures++;item.missing=[...(item.missing||[]),'后续主体核对失败：'+error.message];
-      if(error.message.includes('本机识别服务')){render();await save();throw error;}
+      if(error.message.includes('浏览器识别初始化失败')){render();await save();throw error;}
     }finally{if(!cancelled)item.subjectAttempt=state.matchRevision;}
     render();await save();
   }
@@ -843,19 +842,19 @@ async function run(task){
 
 async function checkHealth(){
   try{
-    const response=await fetch(SERVICE+'/health',{signal:AbortSignal.timeout(2500)});const health=await response.json();
-    if(!response.ok)throw new Error('服务错误');
-    if(!serviceAvailable){serviceAvailable=true;requestAutoCompare();}
-    const local=health.engine==='local';
+    const health=await engineRequest('/health');
+    if(health.ok===false)throw new Error('识别引擎错误');
+    const available=health.configured!==false&&health.model?.state!=='error';
+    if(available&&!serviceAvailable){serviceAvailable=true;requestAutoCompare();}else serviceAvailable=available;
+    const local=health.engine==='local'||health.engine==='browser';
     document.body.dataset.service=local?health.model.state:health.configured?'ready':'offline';
-    $('service-status').textContent=local?(health.model.state==='ready'?'识别服务已就绪':health.model.state==='loading'?'正在准备识别'+(Number.isFinite(health.model.progress)?' · '+health.model.progress+'%':''):health.model.message):'识别服务'+(health.configured?'已就绪':'待配置');
+    $('service-status').textContent=local?(health.model.state==='ready'?'浏览器识别已就绪':health.model.state==='loading'?'正在准备内置识别'+(Number.isFinite(health.model.progress)?' · '+health.model.progress+'%':''):health.model.message):'浏览器识别'+(health.configured?'已就绪':'待准备');
     $('prepare-model').hidden=!local||['loading','ready'].includes(health.model.state);
-    if(local&&health.model.state==='loading'&&!healthTimer)healthTimer=setInterval(checkHealth,5000);
-    if((!local||health.model.state!=='loading')&&healthTimer){clearInterval(healthTimer);healthTimer=null;}
+    if(!healthTimer)healthTimer=setInterval(checkHealth,5000);
   }catch{
     serviceAvailable=false;
     document.body.dataset.service='offline';
-    $('service-status').textContent='识别服务未启动 · 先双击“启动服务.cmd”';$('prepare-model').hidden=true;
+    $('service-status').textContent='内置识别尚未就绪 · 请重开侧栏重试';$('prepare-model').hidden=false;
     if(!healthTimer)healthTimer=setInterval(checkHealth,5000);
   }
   renderProgress();
@@ -897,7 +896,7 @@ $('read-provider').addEventListener('click',()=>{if(busy){
 $('stop-provider').addEventListener('click',()=>{pauseCurrentCollection();$('provider-status').textContent='已暂停采集。已抓取商品会自动核对，可继续采集后续结果。';});
 $('stop-collection').addEventListener('click',()=>pauseCurrentCollection());
 $('resume-collection').addEventListener('click',()=>{if(!state.collection)return;if(state.items.length>=COLLECTION_LIMIT){pauseCurrentCollection('limit-reached');return;}resumeCollection(state.collection);autoPaused=false;render();save();watchProvider();});
-window.addEventListener('pagehide',()=>{closeImagePreview();autoPaused=true;if(state.collection?.status==='running')pauseCollection(state.collection,'panel-closed');stopProviderWatch();save();if(autoTimer)clearTimeout(autoTimer);if(healthTimer)clearInterval(healthTimer);});
+window.addEventListener('pagehide',()=>{closeImagePreview();closeEngine();autoPaused=true;if(state.collection?.status==='running')pauseCollection(state.collection,'panel-closed');stopProviderWatch();save();if(autoTimer)clearTimeout(autoTimer);if(healthTimer)clearInterval(healthTimer);});
 $('add-keyword').addEventListener('click',()=>{addKeyword($('manual-keyword').value);$('manual-keyword').value='';renderKeywords();save();});
 $('manual-keyword').addEventListener('keydown',event=>{if(event.key==='Enter')$('add-keyword').click();});
 $('cancel').addEventListener('click',()=>{cancelled=true;autoPaused=true;autoPending=false;pauseCurrentCollection();for(const controller of requestControllers)controller.abort();status('正在停止本次检索…');});
@@ -922,9 +921,9 @@ for(const button of document.querySelectorAll('[data-result-tab]')){
     if(next<0)return;event.preventDefault();resultTab=names[next];render();$('tab-'+resultTab).focus();
   });
 }
-$('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('模型正在加载，完成后可以识别图片。');}));
+$('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('内置识别已就绪，可以查找商品。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.2.19',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||null,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.3.0',recognitionRuntime:'browser-wasm-v1',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||null,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });

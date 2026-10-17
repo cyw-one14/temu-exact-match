@@ -26,7 +26,7 @@ export function prepareSubjects(){
     const featureModels=await prepareFeatures();
     subjectState.state='ready';subjectState.message='主体分割与特征比对已就绪';subjectState.progress=100;
     return {segment,segmentProcessor,...featureModels};
-  })().catch(error=>{modelsPromise=null;subjectState.state='error';subjectState.message='主体模型加载失败：'+error.message.slice(0,160);throw error;});
+  })().catch(error=>{modelsPromise=null;subjectState.state='error';subjectState.message='主体模型加载失败：'+String(error.message||error).slice(0,160);throw error;});
   return modelsPromise;
 }
 export function prepareFeatures(){
@@ -199,14 +199,14 @@ export async function comparePreparedSubjects(baseA,baseB,options={}){
     focused=attendedA.attention.applied||attendedB.attention.applied;
     attention={status:focused?'applied':'preserved',applied:focused,reference:attendedA.attention,candidate:attendedB.attention,reason:focused?'人体识别与颜色共同支持的区域已降权；原图与前景保持原样':'未找到可可靠降权的人体区域，原区域保持参与核对'};
     if(focused){a=attendedA;b=attendedB;}
-  }catch(error){attention={status:'unavailable',applied:false,reason:'区域关注未完成，已保留原主体复核：'+error.message.slice(0,120)};}
+  }catch(error){attention={status:'unavailable',applied:false,reason:'区域关注未完成，已保留原主体复核：'+String(error.message||error).slice(0,120)};}
   const compare=focused?compareFocusedDescriptors:compareDescriptors;
   const verify=async result=>{
     if(focused&&result.matched)try{
       const {compareFocusedFeatures}=await import('./fast-features.mjs');
       const detailVerification=await compareFocusedFeatures(result.descriptor,b);
       result={...result,matched:detailVerification.matched,detailVerification,failedChecks:detailVerification.matched?result.failedChecks:[...(result.failedChecks||[]),{key:'local-content',label:'商品局部图像内容未通过',actual:detailVerification.reason,required:'商品几何、颜色和局部内容共同一致'}],reason:detailVerification.matched?'商品关注区域的特征、几何对应、颜色和局部图像内容一致':'商品关注区域的局部图像内容仍未核实，保留无法确认'};
-    }catch(error){result={...result,matched:false,detailVerification:{matched:false,reason:error.message.slice(0,160)},reason:'商品关注区域的细节校验未完成，保留无法确认'};}
+    }catch(error){result={...result,matched:false,detailVerification:{matched:false,reason:String(error.message||error).slice(0,160)},reason:'商品关注区域的细节校验未完成，保留无法确认'};}
     delete result.descriptor;return result;
   };
   let best=await verify({...compare(a,b),descriptor:a,referencePreview:baseA.preview,candidatePreview:baseB.preview,orientation:{mirror:false,rotation:0}});

@@ -1,3 +1,5 @@
+import {installEngineWorkerFixture} from './engine-worker-fixture.mjs';
+installEngineWorkerFixture();
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -108,7 +110,7 @@ test('a failed connection has a visible progress error and preserves the unconfi
   const item=makeItem('601123456789007','pending');delete item.subjectAttempt;
   const ui=await mount(savedState([item]),{compare:()=>{throw new TypeError('TEST connection failure');}});
   await until(()=>ui.get('progress-title').textContent==='处理遇到问题');
-  assert.match(ui.get('progress-detail').textContent,/无法连接本机识别服务/);
+  assert.match(ui.get('progress-detail').textContent,/浏览器识别初始化失败/);
   assert.equal(ui.get('analysis-progress').dataset.phase,'error');assert.equal(ui.get('exact-results').children.length,0);assert.equal(ui.saved.items[0].status,'pending');ui.close();
 });
 

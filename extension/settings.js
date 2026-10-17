@@ -1,3 +1,4 @@
+import {engineRequest,closeEngine} from './engine-client.mjs';
 const $=id=>document.getElementById(id);
 const saved=(await chrome.storage.local.get('preferences')).preferences;
 if(saved?.maxCandidates)$('max-candidates').value=saved.maxCandidates;
@@ -9,9 +10,10 @@ $('save').addEventListener('click',async()=>{
   if(!Number.isInteger(maxCandidates)||maxCandidates<1||maxCandidates>40){$('message').textContent='请填写 1–40 之间的整数';return;}
   await chrome.storage.local.set({preferences:{...saved,maxCandidates,imageButtons:$('image-buttons').checked,onImageClick:$('on-image-click').value,providerPeriod:$('provider-period').value}});$('message').textContent='全部设置已保存';
 });
-$('open-setup').addEventListener('click',()=>chrome.tabs.create({url:'http://127.0.0.1:43187/setup'}));
+$('open-setup').addEventListener('click',async()=>{try{$('health').textContent='正在准备内置识别…';await engineRequest('/prepare',{});$('health').textContent='浏览器识别已就绪，无需启动本机服务。';}catch(error){$('health').textContent='准备失败：'+error.message;}});
 $('open-temu').addEventListener('click',()=>chrome.tabs.create({url:'https://www.temu.com/'}));
 try{
-  const health=await(await fetch('http://127.0.0.1:43187/health',{signal:AbortSignal.timeout(3000)})).json();
-  $('health').textContent=health.engine==='local'?(health.model.state==='ready'?'识别服务已就绪':health.model.message):'识别服务'+(health.configured?'已就绪':'待配置');
-}catch{$('health').textContent='尚未连接。请先双击“启动服务.cmd”。';}
+  const health=await engineRequest('/health');
+  $('health').textContent=health.model.state==='ready'?'浏览器识别已就绪，无需启动本机服务。':health.model.message;
+}catch{$('health').textContent='内置识别未就绪，请点“检查内置识别”重试。';}
+window.addEventListener('pagehide',closeEngine);

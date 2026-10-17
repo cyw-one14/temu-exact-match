@@ -1,0 +1,11 @@
+import * as lib from '@temu/transformers-web';
+lib.env.allowRemoteModels=false;
+lib.env.allowLocalModels=true;
+lib.env.localModelPath=new URL('./models/',self.location.href).href;
+lib.env.useBrowserCache=false;
+lib.env.useFS=false;lib.env.useFSCache=false;
+lib.env.backends.onnx.wasm.wasmPaths=new URL('./vendor/onnx/',self.location.href).href;
+lib.env.backends.onnx.wasm.numThreads=1;
+lib.env.backends.onnx.wasm.proxy=false;
+export const segmentationDevice='wasm-fp32-512';
+export * from '@temu/transformers-web';

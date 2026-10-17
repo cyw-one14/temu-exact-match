@@ -9,5 +9,5 @@
 <p class="hint">只读取页面真实展示的销量，不同来源和周期分别排序。未展示所选周期时显示未知。</p>
 <label for="max-candidates">每批核对数量</label><input id="max-candidates" type="number" min="1" max="40" value="12"><p class="hint">默认每批12条，后续自动继续。每次查找最多收集50条候选，不足按实际数量。通常无需修改。</p></div></details>
 <button id="save" class="primary" type="button">保存设置</button><p id="message" class="status" role="status" aria-live="polite"></p>
-<section><h2>识别服务</h2><p id="health" class="hint">正在检查…</p><button id="open-setup" type="button">查看服务状态</button><p class="hint">图片核对需要这台电脑上的识别服务运行，默认使用本地模型。</p></section>
+<section><h2>浏览器内置识别</h2><p id="health" class="hint">正在检查…</p><button id="open-setup" type="button">检查内置识别</button><p class="hint">模型已随扩展打包，在这台电脑的浏览器内计算。无需安装 Node、Python 或启动服务；打开侧栏后自动准备，关闭侧栏后释放内存。</p></section>
 <details><summary>第一次怎么用？</summary><ol><li>在 TEMU 美国站商品图片上点“查同款”。</li><li>等待自动核对；需要登录或上传时，按侧栏提示继续。</li><li>查看“同款 / 未确定 / 非同款”，有误判可在卡片上调整，下次会记住。</li></ol><button id="open-temu" type="button">打开 TEMU</button></details></main><script type="module" src="settings.js"></script></body></html>

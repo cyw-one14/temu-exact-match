@@ -48,7 +48,7 @@ export function prepareModel() {
     modelState.state='ready'; modelState.message='本地图片识别已就绪'; modelState.progress=100;
     return {processor,model,RawImage:lib.RawImage};
   })().catch(error=>{
-    modelState.state='error'; modelState.message='模型加载失败：'+error.message.slice(0,220);
+    modelState.state='error'; modelState.message='模型加载失败：'+String(error.message||error).slice(0,220);
     localModelPromise=undefined;
     throw error;
   });
@@ -148,9 +148,9 @@ export async function localCompare(referenceBuffer,candidateBuffer,referenceSpec
   const pixels=await comparePixels(referenceBuffer,candidateBuffer,options);
   let fastMatch=null,instanceMatch=null;
   if(options.subjectMatching&&!pixels.samePhoto){
-    try{fastMatch=await fastFeatureCompare(referenceBuffer,candidateBuffer);}catch(error){fastMatch={matched:false,reason:'快速特征核验不可用，使用原主体模型',error:error.message.slice(0,160)};}
+    try{fastMatch=await fastFeatureCompare(referenceBuffer,candidateBuffer);}catch(error){fastMatch={matched:false,reason:'快速特征核验不可用，使用原主体模型',error:String(error.message||error).slice(0,160)};}
   }
-  if(options.subjectMatching&&!pixels.samePhoto&&!fastMatch?.matched)try{instanceMatch=await instanceFeatureCompare(referenceBuffer,candidateBuffer,options.referenceText);}catch(error){instanceMatch={matched:false,reason:'商品实例核验未完成，继续原主体复核',error:error.message.slice(0,120)};}
+  if(options.subjectMatching&&!pixels.samePhoto&&!fastMatch?.matched)try{instanceMatch=await instanceFeatureCompare(referenceBuffer,candidateBuffer,options.referenceText);}catch(error){instanceMatch={matched:false,reason:'商品实例核验未完成，继续原主体复核',error:String(error.message||error).slice(0,120)};}
   const subject=options.subjectMatching&&!pixels.samePhoto&&!fastMatch?.matched&&!instanceMatch?.matched?await compareSubjects(referenceBuffer,candidateBuffer,{referenceText:options.referenceText,candidateText}):null;
   const comparison={...pixels,fastMatch,instanceMatch,subject,checks:localSpecChecks(referenceSpecs,candidateText),differences:[],evidence:[pixels.pixelIdentical?'标准化图片像素一致':pixels.assetVerified?'同一官方商品图片资源，尺寸 / 格式转换后图像内容一致':pixels.reencodedPhoto?'完整图片纹理与全图局部内容一致，确认压缩 / 缩放同图副本':fastMatch?.matched?'SIFT 快速核验：至少 24 个几何一致点，匹配覆盖主体多个区域，整体颜色及局部图像内容一致':instanceMatch?.matched?instanceMatch.reason:subject?.reason||'本地引擎无法确认这两张图片一致']};
   if(instanceMatch?.matched)comparison.evidence.push('商品本体实例已核验，图中重复数量不参与排除；该链接套装组成和具体 SKU 仍按页面原文记录，未折算单件价格');
@@ -210,7 +210,7 @@ export async function cloudCompare(config,referenceData,candidateData,referenceS
     try{
       const review=await localCompare(imageBuffer(referenceData),imageBuffer(candidateData),referenceSpecs,candidateText,{subjectMatching:true,referenceText:options.referenceText});
       return {...review,status:review.status==='different'?'pending':review.status,engine:'cloud+direction-review',provisionalDifferences:comparison.differences,evidence:[...(review.evidence||[]),'云端初判不同后已进行本机镜像与旋转方向复核'],...(review.status==='pending'?{reason:'方向复核仍未确认一致，保留无法确认'}:{})};
-    }catch(error){return {...comparison,...decision,status:'pending',visual:'uncertain',visualChecks:[],differences:[],provisionalDifferences:comparison.differences,reason:'方向复核未完成，保留无法确认',missing:['方向复核：'+error.message.slice(0,160)],engine:'cloud'};}
+    }catch(error){return {...comparison,...decision,status:'pending',visual:'uncertain',visualChecks:[],differences:[],provisionalDifferences:comparison.differences,reason:'方向复核未完成，保留无法确认',missing:['方向复核：'+String(error.message||error).slice(0,160)],engine:'cloud'};}
   }
   return {...comparison,...decision,engine:'cloud'};
 }

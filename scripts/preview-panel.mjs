@@ -36,7 +36,8 @@ if(remember||design){
   fixture.items=[0,1].map(i=>({...template,id:String(601999999999901+i),title:'长期记忆测试商品 '+(i+1)+'（仅界面测试数据）',status:i?'different':'visual-match',subjectAttempt:1}));
 }
 if(process.argv.includes('--empty')){fixture.referenceImage='';fixture.items=[];fixture.profile=null;fixture.lastRun=null;}
-const bootstrap=`import {ManualMemoryStore} from '/manual-memory.mjs';const fixture=${JSON.stringify(fixture)};
+const workerFixture="// Browser transport double only. Existing panel scenarios keep their network\n// fixtures, but production code contains no localhost fallback.\nfunction installEngineWorkerFixture(){\n  globalThis.Worker=class{\n    constructor(){this.controllers=new Set();this.closed=false;}\n    postMessage({id,path,body}){\n      const controller=new AbortController();this.controllers.add(controller);\n      Promise.resolve().then(async()=>{\n        const response=await fetch('http://127.0.0.1:43187'+path,{method:body?'POST':'GET',...(body?{body:JSON.stringify(body)}:{}),signal:controller.signal});\n        const result=await response.json();if(response.ok===false||result.ok===false)throw Error(result.error||'TEST request failure');\n        if(!this.closed){if(path==='/health')this.onmessage?.({data:{type:'state',health:result}});if(id)this.onmessage?.({data:{id,result}});}\n      }).catch(error=>{if(!this.closed){if(error instanceof TypeError)this.onerror?.({message:error.message});else this.onmessage?.({data:{id,error:error.message}});}}).finally(()=>this.controllers.delete(controller));\n    }\n    terminate(){this.closed=true;for(const controller of this.controllers)controller.abort();this.controllers.clear();}\n  };\n}\n\ninstallEngineWorkerFixture();\n";
+const bootstrap=`${workerFixture}import {ManualMemoryStore} from '/manual-memory.mjs';const fixture=${JSON.stringify(fixture)};
 const view=new URL(location.href).searchParams.get('view');
 if(view==='empty'){fixture.referenceImage='';fixture.items=[];fixture.profile=null;fixture.lastRun=null;}
 if(view==='selected'){fixture.items=[];fixture.lastRun=null;}
@@ -50,7 +51,7 @@ document.getElementById('qa-finish')?.addEventListener('click',()=>queue.shift()
 const server=http.createServer(async(req,res)=>{
   const name=new URL(req.url,'http://127.0.0.1:43211').pathname.slice(1);
   if(name==='qa.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bootstrap);return;}
-  if(name==='qa-settings.mjs'){res.setHeader('Content-Type','text/javascript');res.end("globalThis.chrome={storage:{local:{get:async()=>({}),set:async()=>{}}},tabs:{create:async()=>{}}};globalThis.fetch=async()=>({json:async()=>({engine:'local',model:{state:'ready'}})});await import('/settings.js');");return;}
+  if(name==='qa-settings.mjs'){res.setHeader('Content-Type','text/javascript');res.end("globalThis.chrome={storage:{local:{get:async()=>({}),set:async()=>{}}},tabs:{create:async()=>{}}};globalThis.fetch=async()=>({json:async()=>({engine:'browser',model:{state:'ready'}})});"+workerFixture+"await import('/settings.js');");return;}
   if(name==='settings.html'){res.setHeader('Content-Type','text/html');res.end((await readFile(new URL(name,root),'utf8')).replace('src="settings.js"','src="qa-settings.mjs"').replace('<h1>设置</h1>','<h1>设置 · 界面校验</h1>'));return;}
   if(!name){res.setHeader('Content-Type','text/html');res.end((await readFile(new URL('panel.html',root),'utf8')).replace('src="panel.js"','src="qa.mjs"').replace('<h1>TEMU 同款助手</h1>','<h1>界面校验 · 测试数据</h1>').replace('<main>',(interactive?'<button id="qa-finish" type="button">测试：完成一条主体核对</button>':'')+(remember?'<p>每次刷新重新载入测试候选，仅保留人工分类记忆。</p><button id="qa-clear-memory" type="button">清除测试记忆</button>':'')+'<main>'));return;}
   if(!files.has(name)){res.writeHead(404);res.end();return;}

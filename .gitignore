@@ -2,6 +2,11 @@
 node_modules/
 .cache/
 dist/
+extension/vendor/
+extension/models/
+extension/browser-engine.bundle.js
+extension/python/
+extension/licenses/
 test-output/
 __pycache__/
 *.py[cod]

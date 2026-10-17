@@ -1,3 +1,5 @@
+import {installEngineWorkerFixture} from './engine-worker-fixture.mjs';
+installEngineWorkerFixture();
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
