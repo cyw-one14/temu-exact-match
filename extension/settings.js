@@ -13,5 +13,5 @@ $('open-setup').addEventListener('click',()=>chrome.tabs.create({url:'http://127
 $('open-temu').addEventListener('click',()=>chrome.tabs.create({url:'https://www.temu.com/'}));
 try{
   const health=await(await fetch('http://127.0.0.1:43187/health',{signal:AbortSignal.timeout(3000)})).json();
-  $('health').textContent=health.engine==='local'?health.model.message:'云端视觉服务'+(health.configured?'已配置':'缺少密钥');
+  $('health').textContent=health.engine==='local'?(health.model.state==='ready'?'识别服务已就绪':health.model.message):'识别服务'+(health.configured?'已就绪':'待配置');
 }catch{$('health').textContent='尚未连接。请先双击“启动服务.cmd”。';}

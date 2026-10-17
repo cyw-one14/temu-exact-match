@@ -1,11 +1,13 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TEMU 同款助手设置</title><link rel="stylesheet" href="panel.css"><link rel="stylesheet" href="settings.css"></head>
-<body><main class="settings-main"><h1>TEMU 同款助手设置</h1><p class="hint">美国站 · 浏览器真实页面数据</p>
+<body><main class="settings-main"><div><span class="eyebrow">TEMU 同款助手</span><h1>设置</h1><p class="hint">一般保持默认，就可以开始查找。</p></div>
 <section><h2>图片按钮与图搜</h2>
 <label><input id="image-buttons" type="checkbox" checked> 在 TEMU 商品图片右上角显示“查同款”</label>
-<label for="on-image-click">点击图片按钮后</label><select id="on-image-click"><option value="provider">后台打开选品助手图搜并同步结果</option><option value="local">只提取图片到侧栏</option></select>
+<label for="on-image-click">点“查同款”后</label><select id="on-image-click"><option value="provider">自动查找并核对（推荐）</option><option value="local">只选中图片，稍后查找</option></select><p class="hint">图搜页在后台打开，不会自动切走你正在看的商品页。</p></section>
+<details class="settings-options"><summary>销量与核对选项</summary><div class="settings-options-body">
 <label for="provider-period">第三方销量采用的周期</label><select id="provider-period"><option value="unknown">页面“已售出” / “销量”，周期未知</option><option value="30d">页面标明的近 30 天</option><option value="7d">页面标明的近 7 天</option><option value="month">页面标为“月销量”</option><option value="week">页面标为“周销量”</option><option value="day">页面标为“日销量”</option><option value="today">页面标为“今日销量”</option><option value="total">页面标明的累计 / 总销量</option></select>
-<p class="hint">只有页面展示的字段才可读取。缺少所选周期的商品保留为未知销量；不同来源和周期分别排序。登录与验证在图搜页正常完成。</p></section>
-<section><h2>本机识别服务</h2><p id="health" class="status">正在检查…</p><button id="open-setup" type="button">打开图片识别设置</button><p class="hint">图搜入口、页面结果同步与关键词收集无需本机模型。图片自动核对需要本机服务；默认本地模型无需 API Key。</p></section>
-<section><h2>自动核对范围</h2><label for="max-candidates">每批自动核对的商品数</label><input id="max-candidates" type="number" min="1" max="40" value="12"><p class="hint">每批数量只控制核对节奏，已采集候选自动进入后续批次。每张参考图最多采集100条去重候选，翻页、来源和检索词共用上限，满100条自动停止采集并核对；不足时按实际数量。页面停滞、需要登录或验证时暂停并保留数据。核对越多耗时越长，云端模式会增加模型调用。</p><button id="save" class="primary" type="button">保存全部设置</button></section>
-<section><h2>使用步骤</h2><ol><li>加载扩展后，刷新 TEMU 页面并选择美国地区。</li><li>点击商品图片右上角“查同款”。</li><li>在图搜页面按需要登录、验证或启用原选品助手，选择美国站。</li><li>侧栏先核对主体，标题相似组可补充颜色；仍无法确认的商品再比较主体轮廓，两项轮廓指标均达90%按轮廓补充同款处理。结果区区分各类依据，原始标题和页面价格保留。可复制标题，按匹配程度、美元价格或销量排列。</li></ol><button id="open-temu" type="button">打开 TEMU</button></section><p id="message" role="status" aria-live="polite"></p></main><script type="module" src="settings.js"></script></body></html>
+<p class="hint">只读取页面真实展示的销量，不同来源和周期分别排序。未展示所选周期时显示未知。</p>
+<label for="max-candidates">每批核对数量</label><input id="max-candidates" type="number" min="1" max="40" value="12"><p class="hint">默认每批12条，后续自动继续。每次查找最多收集100条候选，不足按实际数量。通常无需修改。</p></div></details>
+<button id="save" class="primary" type="button">保存设置</button><p id="message" class="status" role="status" aria-live="polite"></p>
+<section><h2>识别服务</h2><p id="health" class="hint">正在检查…</p><button id="open-setup" type="button">查看服务状态</button><p class="hint">图片核对需要这台电脑上的识别服务运行，默认使用本地模型。</p></section>
+<details><summary>第一次怎么用？</summary><ol><li>在 TEMU 美国站商品图片上点“查同款”。</li><li>等待自动核对；需要登录或上传时，按侧栏提示继续。</li><li>查看“同款 / 未确定 / 非同款”，有误判可在卡片上调整，下次会记住。</li></ol><button id="open-temu" type="button">打开 TEMU</button></details></main><script type="module" src="settings.js"></script></body></html>

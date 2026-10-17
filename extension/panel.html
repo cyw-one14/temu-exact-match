@@ -2,59 +2,47 @@
 <html lang="zh-CN">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TEMU 完全同款助手</title><link rel="stylesheet" href="panel.css"></head>
 <body>
-<header class="app-header"><div><h1>TEMU 同款助手</h1><p>美国站 · 自动比较同款价格与标题</p></div><button id="settings" class="quiet" type="button">设置</button></header>
+<header class="app-header"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="13" height="15" rx="3" stroke="currentColor" stroke-width="1.8"/><circle cx="15.5" cy="14.5" r="4" fill="var(--brand-soft)" stroke="currentColor" stroke-width="1.8"/><path d="m18.5 17.5 3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><div><h1>TEMU 同款助手</h1><p>选件商品，帮你找同款</p></div></div><button id="settings" class="quiet" type="button">设置</button></header>
 <main>
+  <section class="upload-section">
+    <div id="welcome" class="welcome"><span class="eyebrow">开始一次查找</span><h2>你想找哪件商品？</h2><p>在 TEMU 商品图片上点「查同款」，<br>或上传一张商品图片。</p></div>
+    <label for="upload" class="upload-label"><span class="upload-symbol" aria-hidden="true">＋</span><span><strong>上传商品图片</strong><small>JPG / PNG / WebP · 8 MB 以内</small></span><input id="upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
+    <div id="reference" class="reference" hidden><img id="reference-image" alt="本次查找的商品"><div class="reference-info"><span class="eyebrow">正在查找的商品</span><strong id="reference-name">待识别产品</strong></div><button id="replace-image" class="quiet" type="button">换一张</button></div>
+    <button id="analyze" class="primary start-search" type="button" disabled hidden>开始查同款</button>
+    <div class="service-line"><span class="service-dot" aria-hidden="true"></span><span id="service-status">正在连接识别服务…</span><button id="prepare-model" class="quiet" type="button" hidden>准备识别</button></div>
+  </section>
   <section id="analysis-progress" class="analysis-progress" hidden aria-label="本次分析进度">
-    <div class="progress-heading"><div><p class="progress-eyebrow">本次同款分析</p><h2 id="progress-title" aria-live="polite">等待开始</h2></div><strong id="progress-percent">0%</strong></div>
+    <div class="progress-heading"><h2 id="progress-title" aria-live="polite">等待开始</h2><strong id="progress-percent">0%</strong></div>
     <div id="progress-bar" class="progress-track" role="progressbar" aria-label="商品核对完成比例" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
     <p id="progress-count" class="progress-count"></p>
-    <ol class="progress-steps" aria-label="分析步骤"><li data-step="collect">1 收集商品</li><li data-step="images">2 图片初筛</li><li data-step="subject">3 核对主体</li><li data-step="complete">4 查看结果</li></ol>
-    <p id="progress-detail" class="progress-detail"></p>
-    <div id="progress-totals" class="progress-totals"></div>
+    <ol class="progress-steps" aria-label="分析步骤"><li data-step="collect">收集商品</li><li data-step="images">图片初筛</li><li data-step="subject">核对主体</li><li data-step="complete">查看结果</li></ol>
+    <p id="progress-detail" class="progress-detail"></p><div id="progress-totals" class="progress-totals"></div>
+    <div class="progress-actions"><button id="stop-collection" class="quiet" type="button" hidden>先核对已收集的商品</button><button id="resume-analysis" type="button" hidden>继续核对</button><button id="cancel" class="quiet" type="button" hidden>暂停核对</button></div>
   </section>
-  <section class="upload-section">
-    <label for="upload" class="upload-label"><span class="upload-symbol">＋</span><strong>上传产品图片</strong><span>PNG / JPG / WebP · 最大 8 MB</span><input id="upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
-    <div id="reference" class="reference" hidden><img id="reference-image" alt="用户上传的产品"><div><strong id="reference-name">待识别产品</strong><p id="reference-description"></p><button id="replace-image" class="quiet" type="button">更换图片</button></div></div>
-    <details class="specifications"><summary>页面信息 · 自动读取 / 可选备注</summary><p class="hint">先按标题分组，两组都核对主体；仅标题相似组可在主体未匹配后补充颜色判断。仍无法确认时，两组均比较主体轮廓，重合与边界指标均达90%按轮廓补充同款处理，并保留依据。数量、尺寸等只作附注。</p><div class="spec-grid">
-      <label>品牌<input id="spec-brand" placeholder="如有标注，请照实填写"></label>
-      <label>型号<input id="spec-model" placeholder="如 A123"></label>
-      <label>材质<input id="spec-material" placeholder="使用站内英文规格更易核对"></label>
-      <label>尺寸 / 容量<input id="spec-dimensions" placeholder="如 500ml"></label>
-      <label>数量 / 套装<input id="spec-quantity" placeholder="如 1pc"></label>
-    </div></details>
-    <div class="actions"><button id="analyze" class="primary" type="button" disabled>用图片查找同款</button><button id="collect" type="button">读取当前 TEMU 页 / 连续采集</button></div>
-    <div class="service-line"><span id="service-status">检查本机识别服务…</span><button id="prepare-model" class="quiet" type="button" hidden>加载模型</button></div>
-  </section>
-  <section class="provider-section">
-    <div class="section-header"><h2>选品助手图搜</h2><span>真实页面结果</span></div>
-    <p class="hint">点击商品图片“查同款”后，图搜页在后台打开，保留当前页面。网页图片地址会交给特卖数据查询；需要登录、验证或上传本地图片时，再点击“查看图搜页”处理并选择美国站。</p>
-    <div class="actions"><button id="provider-search" class="primary" type="button">后台打开图搜</button><button id="show-provider" type="button" hidden>查看图搜页</button><button id="read-provider" type="button">读取 / 继续同步图搜结果</button><button id="stop-provider" class="quiet" type="button" hidden>暂停同步</button></div>
-    <p id="provider-status" class="hint">等待选图。上传的本地图片可在图搜页正常上传，无需 F12。</p>
-    <details id="provider-input" hidden><summary>本次查询图片与原标题</summary><img id="provider-input-image" alt="实际提交的查询图片"><p id="provider-input-title" class="hint"></p><p id="provider-input-id" class="product-note"></p><a id="provider-input-link" target="_blank" rel="noopener noreferrer">查看所选原图 ↗</a><p class="hint">第三方 Temu 标签会使用标题检索候选；左上角展示所选图片不代表候选均由图片匹配得到。专业版横幅中的图片不属于当前可读取商品列表。</p></details>
-  </section>
-  <div id="status" class="status" role="status" aria-live="polite">上传图片，然后读取 TEMU 页面或开始检索。</div>
-  <section id="collection-section" hidden><h2>连续采集范围</h2><p id="collection-status" class="hint" aria-live="polite"></p><p class="hint">每张参考图最多保留100条候选，按来源与商品ID去重，翻页和不同检索词共用上限。满100条自动停止采集并核对，不足时按实际数量；搜索范围由网站决定。</p><div class="actions"><button id="stop-collection" type="button">暂停采集，开始核对</button><button id="resume-collection" type="button" hidden>继续采集更多结果</button></div></section>
-  <button id="cancel" type="button" hidden>停止本次检索</button>
+  <details id="provider-section" class="provider-section disclosure" hidden><summary id="provider-label">图搜与同步</summary><div class="disclosure-body">
+    <p id="provider-status" class="hint">图搜页会在后台运行，需要登录、验证或上传时在这里继续。</p>
+    <div class="actions"><button id="show-provider" type="button" hidden>查看图搜页</button><button id="read-provider" type="button">继续读取结果</button></div>
+  </div></details>
+  <div id="status" class="status" role="status" aria-live="polite" hidden>选好商品后，工具会自动查找并核对。</div>
   <section id="results-section" hidden>
-    <div class="section-header"><h2>同款价格与标题</h2><span id="count"></span></div>
-    <label for="result-sort" class="visually-hidden">结果排序</label><select id="result-sort"><option value="match">主体匹配程度优先</option><option value="price">页面 USD 价格 / 起价从低到高</option><option value="sales">页面销量从高到低（按口径分组）</option></select>
-    <p id="scope" class="hint"></p>
-    <p class="hint">判断有误时，可点“移出同款”或“归为同款”。再次查询同一参考商品时会记住调整，也可“恢复自动判断”。</p>
-    <p id="manual-memory-status" class="hint" role="status" aria-live="polite">人工分类长期保存在当前浏览器，关闭浏览器或重启电脑后仍保留。</p>
-    <div id="exact-results"></div>
-    <div id="empty" class="empty" hidden><strong>暂无已确认的主体同款</strong><p>工具自动判断后会在这里展示真实标题、价格与商品链接。</p></div>
-    <details id="pending-section"><summary id="pending-count">自动处理 / 无法确认</summary><div id="pending-results"></div></details>
-    <details id="excluded-section"><summary id="excluded-count">非同款商品</summary><div id="excluded-results"></div></details>
-    <button id="compare-collected" type="button" disabled>重新自动核对</button>
-    <button id="export" class="quiet" type="button">导出本次分析 JSON</button>
+    <div class="section-header"><h2>查找结果</h2><span id="count" class="visually-hidden"></span><span id="result-total"></span></div>
+    <div class="result-tabs" role="tablist" aria-label="商品分类"><button id="tab-same" role="tab" type="button" data-result-tab="same" aria-controls="matches-section" aria-selected="true">同款 <span id="same-total">0</span></button><button id="tab-pending" role="tab" type="button" data-result-tab="pending" aria-controls="pending-section" aria-selected="false" tabindex="-1">未确定 <span id="pending-total">0</span></button><button id="tab-different" role="tab" type="button" data-result-tab="different" aria-controls="excluded-section" aria-selected="false" tabindex="-1">非同款 <span id="different-total">0</span></button></div>
+    <p id="result-help" class="result-help">判断有误？可在卡片上调整分类，下次会记住。</p>
+    <div id="matches-section" role="tabpanel" aria-labelledby="tab-same"><div class="result-toolbar"><label for="result-sort">排序</label><select id="result-sort"><option value="match">匹配程度优先</option><option value="price">美元价格从低到高</option><option value="sales">销量优先（相同口径）</option></select></div><div id="exact-results"></div><div id="empty" class="empty" hidden><strong>还没有找到同款</strong><p>核对会自动进行。也可以看看“未确定”里的商品。</p></div></div>
+    <details id="pending-section" class="result-bucket" role="tabpanel" aria-labelledby="tab-pending" hidden><summary id="pending-count">自动处理 / 无法确认</summary><p class="bucket-help">这些商品暂时无法确定。你可以继续等待核对，也可以自行调整分类。</p><div id="pending-results"></div></details>
+    <details id="excluded-section" class="result-bucket" role="tabpanel" aria-labelledby="tab-different" hidden><summary id="excluded-count">非同款商品</summary><p class="bucket-help">如果有误判，在商品卡片上点“归为同款”即可。</p><div id="excluded-results"></div><p id="excluded-empty" class="empty" hidden>暂时没有非同款商品。</p></details>
   </section>
-  <section id="keyword-section" hidden>
-    <div class="section-header"><h2>销量 Top10 · 每链接关键词</h2><span id="keyword-caption">每组前 10 款</span></div>
-    <p class="hint">从当前同款分类中，每个国家站 / 来源 / 周期分别取页面销量前10款。人工调整后即时更新，保留自动判断与人工调整标记；标题原词不代表关键词自身的搜索量或转化率。</p>
-    <div id="keywords" class="keywords"></div>
-    <details><summary>手动检索词</summary><p class="hint">可使用上方商品原词，或自行填写检索词。</p><div id="retrieval-keywords" class="keywords"></div><div class="manual-search"><label for="manual-keyword" class="visually-hidden">手动填写搜索词</label><input id="manual-keyword" placeholder="手动填写搜索词"><button id="add-keyword" type="button">添加</button></div><button id="search-keywords" type="button">检索已选关键词</button></details>
-  </section>
-  <footer>两组标题均核对主体；颜色补充仅限相似标题，仍无法确认时再比较主体轮廓。价格、标题和链接来自页面；SKU、优惠条件和结算价可能不同。</footer>
+  <details id="keyword-section" class="disclosure" hidden><summary>销量与关键词 <span id="keyword-caption">每组 Top10</span></summary><div class="disclosure-body"><p class="hint">按相同国家站、来源和周期查看销量前10款。词语来自商品页面或原标题，可展开查看原文证据。</p><div id="keywords" class="keywords"></div></div></details>
+  <details id="more-tools" class="disclosure more-tools"><summary>更多操作与说明</summary><div class="disclosure-body">
+    <div class="actions secondary-actions"><button id="collect" type="button">读取当前 TEMU 页面</button><button id="provider-search" type="button">重新打开图搜</button><button id="stop-provider" type="button" hidden>暂停同步</button><button id="compare-collected" type="button" disabled>重新自动核对</button><button id="export" type="button">导出分析 JSON</button></div>
+    <section id="collection-section" hidden><h2>采集记录</h2><p id="collection-status" class="hint" aria-live="polite"></p><button id="resume-collection" type="button" hidden>继续收集商品</button></section>
+    <p id="scope" class="hint"></p><p id="manual-memory-status" class="hint" role="status" aria-live="polite">人工分类长期保存在当前浏览器。</p>
+    <details id="provider-input" hidden><summary>查询图片与原标题</summary><img id="provider-input-image" alt="实际提交的查询图片"><p id="provider-input-title" class="hint"></p><p id="provider-input-id" class="product-note"></p><a id="provider-input-link" target="_blank" rel="noopener noreferrer">查看所选原图 ↗</a><p class="hint">第三方可能根据标题查找候选。输入图片正确不代表结果均为同款，工具会继续核对主体。</p></details>
+    <details class="specifications"><summary>参考商品信息 · 可选备注</summary><p id="reference-description" class="hint"></p><div class="spec-grid"><label>品牌<input id="spec-brand" placeholder="按页面原文填写"></label><label>型号<input id="spec-model" placeholder="按页面原文填写"></label><label>材质<input id="spec-material" placeholder="按页面原文填写"></label><label>尺寸 / 容量<input id="spec-dimensions" placeholder="如 500ml"></label><label>数量 / 套装<input id="spec-quantity" placeholder="如 1pc"></label></div></details>
+    <details><summary>手动检索词</summary><p class="hint">可选商品原标题中的词语，或自行填写。</p><div id="retrieval-keywords" class="keywords"></div><div class="manual-search"><label for="manual-keyword" class="visually-hidden">手动填写搜索词</label><input id="manual-keyword" placeholder="填写检索词"><button id="add-keyword" type="button">添加</button></div><button id="search-keywords" type="button">检索已选关键词</button></details>
+    <details><summary>同款判断与数据说明</summary><p class="hint">先按标题分组，两组都核对主体。主体一致归为同款；标题相似组在主体未匹配后可补充颜色判断，仍无法确认时再比较主体轮廓。颜色与轮廓补充分别标明。只使用已抓取图片，不自动打开商品详情页。每次最多收集100条候选，全站覆盖未核实；进度不表示识别准确率。价格、标题、销量和关键词保留页面来源，具体规格、优惠及结算价格需自行核实。人工分类保存在当前浏览器，可恢复自动判断。</p></details>
+  </div></details>
+  <footer>美国站 · 最多100条候选 · 价格以商品页面为准</footer>
 </main>
 <script type="module" src="panel.js"></script>
 </body></html>

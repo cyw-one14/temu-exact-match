@@ -97,7 +97,8 @@ test('subject progress counts completed responses, keeps in-flight user correcti
   assert.equal(ui.saved.items[0].status,'different');assert.equal(ui.saved.items[0].manualClassification.decision,'same');assert.equal(ui.get('exact-results').children.length,1);
   ui.get('cancel').click();await until(()=>ui.get('cancel').hidden);
   assert.equal(ui.get('progress-title').textContent,'核对已暂停');assert.equal(ui.get('progress-percent').textContent,'50%');assert.equal(ui.saved.items[1].subjectAttempt,undefined);
-  ui.get('compare-collected').click();await until(()=>deferred.length===3);
+  assert.equal(ui.get('resume-analysis').hidden,false);assert.equal(ui.get('more-tools').hasAttribute('open'),false);
+  ui.get('resume-analysis').click();await until(()=>deferred.length===3);
   assert.equal(deferred[2].body.candidateId,pending[1].id);
   deferred[2].resolve({status:'pending',evidence:['TEST inconclusive']});await until(()=>ui.get('cancel').hidden);
   assert.equal(ui.get('progress-title').textContent,'核对完成');assert.equal(ui.get('progress-percent').textContent,'100%');assert.match(ui.get('progress-totals').textContent,/无法确认 1/);assert.equal(ui.saved.items[0].manualClassification.decision,'same');ui.close();
@@ -156,4 +157,29 @@ test('storage updates from another panel refresh classifications, reject older r
   change(record);assert.equal(ui.get('exact-results').children.length,0);assert.match(ui.get('excluded-results').textContent,/已记住/);
   change({...record,revision:1,entries:{}});assert.equal(ui.get('exact-results').children.length,0);
   change(undefined);assert.equal(ui.get('exact-results').children.length,1);assert.doesNotMatch(ui.get('exact-results').textContent,/已记住/);ui.close();
+});
+
+test('simple result tabs keep one category visible, retain full details and support keyboard navigation and corrections',async()=>{
+  const items=[makeItem('601123456789021'),makeItem('601123456789022','different'),makeItem('601123456789023','pending')];
+  const ui=await mount(savedState(items));
+  assert.equal(ui.get('welcome').hidden,true);assert.equal(ui.get('more-tools').hasAttribute('open'),false);assert.equal(ui.get('keyword-section').hasAttribute('open'),false);
+  assert.equal(ui.get('matches-section').hidden,false);assert.equal(ui.get('excluded-section').hidden,true);assert.equal(ui.get('pending-section').hidden,true);
+  assert.equal(ui.get('same-total').textContent,'1');assert.equal(ui.get('different-total').textContent,'1');assert.equal(ui.get('pending-total').textContent,'1');
+  const card=ui.get('exact-results').querySelector('.product');assert.equal(card.querySelector('.product-more').hasAttribute('open'),false);assert.match(card.querySelector('.full-title').textContent,new RegExp(items[0].title));assert.ok(card.querySelector('.product-more .evidence-list'));assert.ok(card.querySelector('.product-actions [data-action="different"]'));
+  ui.get('tab-different').click();assert.equal(ui.get('matches-section').hidden,true);assert.equal(ui.get('excluded-section').hidden,false);assert.equal(ui.get('excluded-section').open,true);
+  action(ui,'excluded-results',items[1].id,'same').click();await until(()=>ui.saved?.items[1].manualClassification?.persistent);assert.equal(ui.get('same-total').textContent,'2');assert.equal(ui.get('different-total').textContent,'0');assert.equal(ui.get('excluded-empty').hidden,false);
+  const key=new ui.window.Event('keydown',{cancelable:true});Object.defineProperty(key,'key',{value:'Home'});ui.get('tab-different').dispatchEvent(key);
+  assert.equal(ui.get('tab-same').getAttribute('aria-selected'),'true');assert.equal(ui.get('matches-section').hidden,false);
+  ui.get('tab-pending').click();assert.equal(ui.get('pending-section').hidden,false);assert.equal(ui.get('pending-section').open,true);assert.equal(ui.get('matches-section').hidden,true);assert.ok(ui.get('pending-toggle'));ui.close();
+});
+
+test('a new user sees a single upload path, then one start action, without an empty progress bar or expanded tools',async()=>{
+  let ui=await mount({...savedState([]),referenceImage:''});assert.equal(ui.get('welcome').hidden,false);assert.equal(ui.get('reference').hidden,true);assert.equal(ui.get('analysis-progress').hidden,true);assert.equal(ui.get('provider-section').hidden,true);assert.equal(ui.get('results-section').hidden,true);assert.equal(ui.get('more-tools').hasAttribute('open'),false);ui.close();
+  ui=await mount(savedState([]));assert.equal(ui.get('welcome').hidden,true);assert.equal(ui.get('analyze').hidden,false);assert.equal(ui.get('analyze').disabled,false);assert.equal(ui.get('analysis-progress').hidden,true);ui.close();
+});
+
+test('upload and login steps automatically reveal their next action without exposing all tools',async()=>{
+  const base={...savedState([]),providerJob:{tabId:7,manualUpload:true}};let ui=await mount(base);
+  assert.equal(ui.get('provider-section').hidden,false);assert.equal(ui.get('provider-section').open,true);assert.equal(ui.get('analyze').hidden,true);assert.match(ui.get('show-provider').textContent,/上传图片/);assert.match(ui.get('read-provider').textContent,/已上传/);assert.equal(ui.get('more-tools').hasAttribute('open'),false);ui.close();
+  ui=await mount({...base,providerJob:{tabId:7,manualUpload:false},collection:{source:'provider',tabId:7,status:'paused',reason:'login',productIds:[],pageKeys:[]}});assert.equal(ui.get('provider-section').open,true);assert.match(ui.get('provider-label').textContent,/需要你处理/);assert.equal(ui.get('show-provider').hidden,false);assert.equal(ui.get('more-tools').hasAttribute('open'),false);ui.close();
 });
