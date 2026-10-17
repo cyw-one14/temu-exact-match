@@ -192,6 +192,33 @@ function keywordEvidenceBlock(words,retrieval=false){
   }
   return block;
 }
+function productKeywordBlock(item){
+  const block=node('section','product-keywords'),words=listingKeywordEvidence(item);
+  block.setAttribute('aria-label','此商品的销量与关键词');
+  block.append(node('strong','product-keyword-heading','销量与关键词'));
+  const sales=node('div','product-meta');
+  sales.append(node('span','',item.sales?.raw?'销量：'+item.sales.raw:'销量未展示'));
+  if(item.sales?.raw)sales.append(node('span','',periodText(item.sales)));
+  block.append(sales);
+  if(words.length){
+    block.append(node('p','keyword-origin',words[0].kind==='product-keyword'?'商品页面关键词':'商品标题原词'));
+    const preview=node('div','keyword-preview');
+    for(const word of words.slice(0,3)){
+      const row=node('div','keyword-preview-row'),text=node('span','keyword-preview-text',word.query);
+      text.title=word.query;
+      const copy=node('button','quiet','复制');copy.type='button';copy.setAttribute('aria-label','复制关键词：'+word.query);
+      copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(word.query);status('已复制关键词：'+word.query);}catch{status('无法复制，请展开完整原词后选中复制',true);}});
+      row.append(text,copy);preview.append(row);
+    }
+    block.append(preview);
+    const details=node('details','keyword-details');
+    details.append(node('summary','','查看完整原词与来源 · '+words.length+' 条'),keywordEvidenceBlock(words));
+    if(!item.sales||item.sales.kind==='unknown')details.append(node('p','hint','销量未知，仅展示此链接的原词来源，未进入销量 Top10。'));
+    if(!isProductMatch(item)||effectiveMatchStatus(item)==='inferred-match')details.append(node('p','hint','仅展示此商品的页面原词，未作为同款关键词推荐。'));
+    block.append(details);
+  }else block.append(node('p','hint','此商品暂无可读取的页面关键词或标题原词。'));
+  return block;
+}
 function safeImage(raw){if(typeof raw==='string'&&raw.length<500000&&/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(raw))return raw;try{const url=new URL(raw);return url.protocol==='https:'&&!url.username&&!url.password?url.href:'';}catch{return '';}}
 function periodText(sales){return sales?.periodLabel||({'30d':'近 30 天','7d':'近 7 天','1d':'日销量',total:'累计销量'})[sales?.period]||'销量统计周期未展示';}
 function node(tag,cls,text){const element=document.createElement(tag);if(cls)element.className=cls;if(text!==undefined)element.textContent=text;return element;}
@@ -264,13 +291,9 @@ function card(item,lead=false){
   info.append(node('div','product-price',price.raw||'价格未读取'));
   more.append(node('p','product-note',priceKindLabel(price)+(price.currency?' · '+price.currency:' · 币种未确认')));
   more.append(node('p','full-title','原标题：'+item.title),node('p','hint','页面价格尚未绑定具体 SKU / 优惠条件，结算时请核实。'));
-  const meta=node('div','product-meta');
-  meta.append(node('span','',item.sales?.raw||'销量未展示'));
-  if(item.sales?.raw)meta.append(node('span','',periodText(item.sales)));
-  info.append(meta);
   const badge=item.status==='outline-match'?'同款 · 主体轮廓相似 · 轮廓补充':item.status==='rule-match'?'同款 · 标题相似 / 主体颜色相近':item.status==='inferred-match'?'旧版推定结果 · 等待重新核对':item.status==='exact'?'同款 · 图片主体一致 · 自动确认':item.status==='visual-match'?(item.matchStage==='page-image'?'同款 · 同图匹配 · 自动确认':item.instanceMatch?.matched?'同款本体 · 图中完整实例已核验':item.fastMatch?.matched?'同款 · 主体一致 · 快速图像核验':'同款 · 主体一致 · 自动核对'):item.status==='different'?'已排除 · '+(item.reason||'图片主体存在差异'):item.autoAttempt===state.matchRevision?'无法自动确认 · 不参与推荐':'等待工具自动核对';
   const shortBadge=manual?(manual==='same'?'人工归为同款':'人工标为非同款'):item.status==='outline-match'?'轮廓补充同款':item.status==='rule-match'?'颜色补充同款':isProductMatch(item)?'图片主体一致':isDifferent(item)?'非同款':'未确定';
-  info.append(node('span','badge'+(manual?' manual-badge':''),shortBadge));top.append(info);article.append(top);
+  info.append(node('span','badge'+(manual?' manual-badge':''),shortBadge),productKeywordBlock(item));top.append(info);article.append(top);
   if(manual)article.append(node('p','manual-note',item.manualClassification.persistent?'已记住你的分类，下次自动沿用。':'正在保存分类；缺少可靠标识时仅保留本次。'));
   more.append(node('p','product-note',(item.salesSource==='provider-visible'?'来源：特卖数据图搜':'来源：TEMU 页面')+' · '+(item.market==='us'?'美国站':'国家站尚未核实')+' · '+periodText(item.sales)+' · 采集 '+new Date(item.capturedAt).toLocaleString('zh-CN')));
   if(price.sourceUrl)more.append(node('p','product-note','价格来源：'+(price.source==='provider-visible'?'特卖数据页面':'TEMU 商品页')+' · '+new Date(price.capturedAt).toLocaleString('zh-CN')));
@@ -296,13 +319,6 @@ function card(item,lead=false){
   }
   listingDetails.append(node('p','hint','店铺名不当作品牌，商品 ID 不当作型号；图片颜色和摆放数量不替代页面规格。'));
   more.append(listingDetails);
-  if(isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'){
-    const words=listingKeywordEvidence(item),keywordDetails=node('details','product-keywords');
-    keywordDetails.append(node('summary','','此链接关键词 · '+words.length+' 条'));
-    keywordDetails.append(keywordEvidenceBlock(words));
-    if(!item.sales||item.sales.kind==='unknown')keywordDetails.append(node('p','hint','销量未知，仅展示此链接的原词来源，未进入销量 Top10。'));
-    more.append(keywordDetails);
-  }
   const details=node('details');details.append(node('summary','',item.status==='different'?'查看差异':'查看核对依据'));
   details.append(node('p','hint','自动判断：'+badge));
   if(manual)details.append(node('p','hint','保留的自动判断：'+badge+'。人工调整时间：'+new Date(item.manualClassification.updatedAt).toLocaleString('zh-CN')),autoNotes);
@@ -964,7 +980,7 @@ for(const button of document.querySelectorAll('[data-result-tab]')){
 }
 $('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('内置识别已就绪，可以查找商品。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.3.4',recognitionRuntime:'browser-wasm-v1',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||state.imageSearchDiagnostics?.submittedInput||null,imageSearchDiagnostics:state.imageSearchDiagnostics,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.3.5',recognitionRuntime:'browser-wasm-v1',generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||state.imageSearchDiagnostics?.submittedInput||null,imageSearchDiagnostics:state.imageSearchDiagnostics,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });

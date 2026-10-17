@@ -445,3 +445,12 @@
 - 复用既有界面测试，无新增仅验证删除文案的测试。node --test --test-concurrency=1 tests/panel-interaction.test.mjs tests/panel.test.mjs相关40项通过，0失败/跳过，约48.21秒，日志.cache/validation-0.3.4-panel.log。43214隔离预览实测默认卡片无国家站提示，展开商品详情仍显示原未知状态；测试标题/价格明确标为虚构界面数据，未发起真实图搜或修改用户扩展存储。截图.cache/ui-validation/country-hidden-0.3.4.png不入Git/安装包，验证标签关闭，仅停止本次创建的43214进程。
 - node scripts/package.mjs及python scripts/verify-package.py通过：0.3.4 ZIP79文件、316,251,194字节，SHA-256为6900729D75496DC2D92402BF0F20F78D0C6A5389519CA71F7E6D2303A4604039，版本ZIP和摘要保留dist；固定模型、Python/shared源、安全策略与稳定扩展ID校验通过，另逐字核对28个包内入口文件与磁盘一致。版本/README/安装说明/AGENTS同步，未改图片加载或模型，不把界面验证当作识别准确率评估。
 - 打包后直接执行service-control.mjs start更新本机兼容服务，NoProxy直连43187/health确认0.3.4、主体和SIFT ready；未改自启，新扩展仍不依赖该服务。fetch确认origin/main与起点一致，git diff --check通过。更新前先导出需要保留的本次JSON，再重新加载扩展并刷新TEMU；长期人工分类保留，未代用户重载或清理存储。
+
+## 2026-10-17：每款卡片直接显示销量与关键词0.3.5
+
+- 起点main/85e404f/0.3.4工作区干净，已读AGENTS、README和验证记录。用户要求销量、关键词与商品图片放在同一张卡片，避免到列表底部查看时无法对应图片。将本链接的销量、统计周期和前三条页面关键词/标题原词放到图片旁，逐条可复制完整原词；长词默认两行，完整原词、证据、采集页面和时间可在卡片内展开，去掉商品详情中的重复关键词块。无销量/无词保持未展示，不生成补齐数据。
+- 同款、未确定和非同款卡片均可查看各自原词；未确定/非同款词仅为来源展示，不进入同款推荐。复用原商品ID与字面证据校验，底部折叠区改为“销量Top10汇总”，同口径排名、推荐/导出资格、50条额度、人工记忆、图片与识别规则保持。新增交互检查覆盖同商品ID不同来源的销量/词/图片绑定、前三条与完整四条、原文字面显示不执行HTML、复制全文、空数据、非同款不进推荐、人工移出后的逐卡片保留；原Top10同步用例增加卡片销量与词同步检查。
+- node --test --test-concurrency=1 tests/*.test.mjs完整185项通过，0失败/跳过，约61.21秒，日志.cache/validation-0.3.5-final.log。只验证界面与数据关联，不作为真实图搜相关性或商品识别准确率保证。未修改图片下载或模型，未重跑模型推理。
+- 43214独立--top10预览使用明确标为界面测试的13件数据、本地图片和浏览器API替身，无真实账号查询。实际浏览器确认图片旁直接显示销量与原词，卡片展开可查看原文证据和采集页面；320×800临时视口下原词自动换行，clientWidth与scrollWidth均305，无横向溢出。截图.cache/ui-validation/card-keywords-0.3.5.png、card-keywords-narrow-0.3.5.png不入Git或安装包；恢复视口、关闭验证标签，只停止本次创建的43214进程，保留用户43211页和实际扩展存储。
+- node scripts/package.mjs与python scripts/verify-package.py通过：0.3.5 ZIP79文件、316,251,767字节，SHA-256为83913D1A46DCD2266F7A59F65D90AAB018EC685BF79A7245498DECEFD19BFFBC，版本ZIP和摘要留在dist。固定模型、Python/shared源、安全策略与稳定ID校验通过，另逐字核对28个包内入口与当前磁盘一致；版本、README、安装说明与AGENTS同步。
+- 打包后直接执行service-control.mjs start，NoProxy直连43187/health确认兼容服务0.3.5、主体与SIFT ready，其他模型按需idle；未改自启，新浏览器扩展仍不依赖该服务。fetch确认origin/main与本次起点一致。用户先导出需要保留的本次JSON，再重新加载项目extension并刷新TEMU即可使用；长期人工分类保留，未代用户重载扩展或清理数据。

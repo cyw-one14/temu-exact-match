@@ -34,6 +34,48 @@ async function mount(saved,{compare,selection=null,provider=null,storageFails=fa
 const action=(ui,section,id,decision,source='provider-visible')=>ui.get(section).querySelector(`[data-product-id="${id}"][data-source="${source}"] [data-action="${decision}"]`);
 async function exportData(ui){let blob;const original=URL.createObjectURL;URL.createObjectURL=value=>{blob=value;return 'blob:test';};try{ui.get('export').click();return JSON.parse(await blob.text());}finally{URL.createObjectURL=original;}}
 
+test('each card exposes only its own sales and original keywords beside its image, while recommendations still require a match',async()=>{
+  const first=makeItem('601123456789081'),otherSource=makeItem(first.id,'visual-match','temu-visible');
+  const pending=makeItem('601123456789082','pending'),different=makeItem('601123456789083','different');
+  const empty={...makeItem('601123456789084'),title:'',sales:parseSales('')};
+  for(const [index,item]of [first,otherSource,pending,different].entries()){
+    item.sales=parseSales((120+index)+' sold');
+    item.productKeywords=Array.from({length:4},(_,word)=>({productId:item.id,query:`TEST source ${index} original phrase ${word} <literal>`,evidence:`Original field: TEST source ${index} original phrase ${word} <literal>`,pageUrl:'https://www.temaishuju.com/plugin/search-image?test-source='+index,capturedAt:item.capturedAt}));
+  }
+  const navigatorDescriptor=Object.getOwnPropertyDescriptor(globalThis,'navigator');let copied;
+  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{writeText:async value=>{copied=value;}}}});
+  const ui=await mount(savedState([first,otherSource,pending,different,empty]));
+  try{
+    ui.get('pending-toggle').click();
+    for(const [index,item]of [first,otherSource,pending,different].entries()){
+      const card=ui.document.querySelector(`.product[data-product-id="${item.id}"][data-source="${item.salesSource}"]`);
+      const block=card.querySelector('.product-top .product-keywords');assert.ok(block);
+      assert.equal(block.closest('.product-more'),null);assert.equal(card.querySelector('img').getAttribute('src'),item.imageUrl);
+      assert.match(block.querySelector('.product-meta').textContent,new RegExp((120+index)+' sold'));
+      assert.equal(block.querySelectorAll('.keyword-preview-row').length,3);
+      assert.deepEqual([...block.querySelectorAll('.keyword-preview-text')].map(word=>word.textContent),item.productKeywords.slice(0,3).map(word=>word.query));
+      assert.equal(block.querySelectorAll('.keyword-preview-text b').length,0);
+      assert.equal(block.querySelector('.keyword-details').hasAttribute('open'),false);
+      assert.equal(block.querySelectorAll('.keyword-source').length,4);assert.match(block.querySelector('.keyword-details').textContent,/原文证据/);
+      assert.equal(block.querySelector('.keyword-source a').href,item.productKeywords[0].pageUrl);
+      assert.doesNotMatch(block.textContent,new RegExp('TEST source '+((index+1)%4)+' original'));
+    }
+    const emptyCard=ui.document.querySelector(`.product[data-product-id="${empty.id}"]`);
+    assert.match(emptyCard.querySelector('.product-keywords').textContent,/销量未展示/);assert.match(emptyCard.textContent,/暂无可读取/);
+    assert.equal(emptyCard.querySelectorAll('.keyword-preview-row').length,0);
+    const firstCard=ui.get('exact-results').querySelector(`[data-product-id="${first.id}"][data-source="provider-visible"]`);
+    firstCard.querySelector('.keyword-preview-row button').click();await until(()=>copied);
+    assert.equal(copied,first.productKeywords[0].query);assert.match(ui.get('status').textContent,/已复制关键词/);
+    assert.equal(ui.get('keywords').querySelectorAll('.seller-entry').length,2);
+    assert.doesNotMatch(ui.get('keywords').textContent,/TEST source [23] original/);
+    const exported=await exportData(ui);assert.equal(exported.products[2].keywordEvidence.length,0);assert.deepEqual(exported.products[2].productKeywords,pending.productKeywords);
+    action(ui,'exact-results',first.id,'different').click();await until(()=>ui.saved?.items[0].manualClassification);
+    assert.equal(ui.get('keywords').querySelectorAll('.seller-entry').length,1);
+    assert.match(ui.get('excluded-results').querySelector(`[data-product-id="${first.id}"] .keyword-preview`).textContent,/TEST source 0 original/);
+    assert.equal(ui.requests.length,0);
+  }finally{ui.close();if(navigatorDescriptor)Object.defineProperty(globalThis,'navigator',navigatorDescriptor);else delete globalThis.navigator;}
+});
+
 test('manual moves update only the selected source, rankings and export, survive reopening and can restore automation',async()=>{
   let ui=await mount(savedState([makeItem('601123456789001'),makeItem('601123456789002','different'),makeItem('601123456789001','visual-match','temu-visible')]));
   const originalTitle=ui.get('exact-results').querySelector('.product-name').textContent;
