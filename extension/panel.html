@@ -7,7 +7,7 @@
   <section class="upload-section">
     <div id="welcome" class="welcome"><span class="eyebrow">开始一次查找</span><h2>你想找哪件商品？</h2><p>在 TEMU 商品图片上点「查同款」，<br>或上传一张商品图片。</p></div>
     <label for="upload" class="upload-label"><span class="upload-symbol" aria-hidden="true">＋</span><span><strong>上传商品图片</strong><small>JPG / PNG / WebP · 8 MB 以内</small></span><input id="upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
-    <div id="reference" class="reference" hidden><img id="reference-image" alt="本次查找的商品"><div class="reference-info"><span class="eyebrow">正在查找的商品</span><strong id="reference-name">待识别产品</strong></div><button id="replace-image" class="quiet" type="button">换一张</button></div>
+    <div id="reference" class="reference" hidden><img id="reference-image" class="previewable-image" tabindex="0" aria-describedby="image-preview" alt="本次查找的商品"><div class="reference-info"><span class="eyebrow">正在查找的商品</span><strong id="reference-name">待识别产品</strong></div><button id="replace-image" class="quiet" type="button">换一张</button></div>
     <button id="analyze" class="primary start-search" type="button" disabled hidden>开始查同款</button>
     <div class="service-line"><span class="service-dot" aria-hidden="true"></span><span id="service-status">正在连接识别服务…</span><button id="prepare-model" class="quiet" type="button" hidden>准备识别</button></div>
   </section>
@@ -25,12 +25,15 @@
   </div></details>
   <div id="status" class="status" role="status" aria-live="polite" hidden>选好商品后，工具会自动查找并核对。</div>
   <section id="results-section" hidden>
-    <div class="section-header"><h2>查找结果</h2><span id="count" class="visually-hidden"></span><span id="result-total"></span></div>
+    <div class="section-header results-header"><h2>查找结果</h2><span id="count" class="visually-hidden"></span><span id="result-total"></span><button id="toggle-results" class="quiet" type="button" aria-expanded="true" aria-controls="results-body">收起列表</button></div>
+    <p id="results-collapsed-note" class="result-help" hidden></p>
+    <div id="results-body">
     <div class="result-tabs" role="tablist" aria-label="商品分类"><button id="tab-same" role="tab" type="button" data-result-tab="same" aria-controls="matches-section" aria-selected="true">同款 <span id="same-total">0</span></button><button id="tab-pending" role="tab" type="button" data-result-tab="pending" aria-controls="pending-section" aria-selected="false" tabindex="-1">未确定 <span id="pending-total">0</span></button><button id="tab-different" role="tab" type="button" data-result-tab="different" aria-controls="excluded-section" aria-selected="false" tabindex="-1">非同款 <span id="different-total">0</span></button></div>
     <p id="result-help" class="result-help">判断有误？可在卡片上调整分类，下次会记住。</p>
     <div id="matches-section" role="tabpanel" aria-labelledby="tab-same"><div class="result-toolbar"><label for="result-sort">排序</label><select id="result-sort"><option value="match">匹配程度优先</option><option value="price">美元价格从低到高</option><option value="sales">销量优先（相同口径）</option></select></div><div id="exact-results"></div><div id="empty" class="empty" hidden><strong>还没有找到同款</strong><p>核对会自动进行。也可以看看“未确定”里的商品。</p></div></div>
     <details id="pending-section" class="result-bucket" role="tabpanel" aria-labelledby="tab-pending" hidden><summary id="pending-count">自动处理 / 无法确认</summary><p class="bucket-help">这些商品暂时无法确定。你可以继续等待核对，也可以自行调整分类。</p><div id="pending-results"></div></details>
     <details id="excluded-section" class="result-bucket" role="tabpanel" aria-labelledby="tab-different" hidden><summary id="excluded-count">非同款商品</summary><p class="bucket-help">如果有误判，在商品卡片上点“归为同款”即可。</p><div id="excluded-results"></div><p id="excluded-empty" class="empty" hidden>暂时没有非同款商品。</p></details>
+    </div>
   </section>
   <details id="keyword-section" class="disclosure" hidden><summary>销量与关键词 <span id="keyword-caption">每组 Top10</span></summary><div class="disclosure-body"><p class="hint">按相同国家站、来源和周期查看销量前10款。词语来自商品页面或原标题，可展开查看原文证据。</p><div id="keywords" class="keywords"></div></div></details>
   <details id="more-tools" class="disclosure more-tools"><summary>更多操作与说明</summary><div class="disclosure-body">
@@ -44,5 +47,6 @@
   </div></details>
   <footer>美国站 · 最多50条候选 · 价格以商品页面为准</footer>
 </main>
+<div id="image-preview" class="image-preview" role="tooltip" aria-label="商品大图预览" hidden><img id="image-preview-image" alt=""><p id="image-preview-caption"></p></div>
 <script type="module" src="panel.js"></script>
 </body></html>

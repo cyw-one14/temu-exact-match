@@ -1,6 +1,6 @@
 {
   "name": "temu-exact-match",
-  "version": "0.2.18",
+  "version": "0.2.19",
   "private": true,
   "type": "module",
   "description": "TEMU 美国站真实页面读取与严格同款分析浏览器插件",

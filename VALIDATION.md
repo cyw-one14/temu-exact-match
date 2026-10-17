@@ -391,3 +391,13 @@
 - 更新既有采集/侧栏边界检查：49条继续、50条暂停且不能再次恢复超额、175行只保留前50条、跨来源共用额度、旧会话截断、虚拟列表翻页累计45→50并停止、满额后价格更新但不导航、JSON完整50条与candidateLimit=50，以及长期人工调整和Top10回归。node --test tests/collection.test.mjs tests/panel-limit.test.mjs tests/panel-interaction.test.mjs tests/panel.test.mjs共42项全部通过，0失败/跳过，约36.8秒；日志.cache/validation-0.2.18-limit.log不入Git。本次只改额度/文案，未重跑未修改的图像模型全量测试，也未在用户真实账号发起新查询，测试不代表实际识别准确率。
 - 已运行node scripts/package.mjs，ZIP23文件、80,071字节，版本0.2.18，稳定扩展ID保持。PATH中的python.exe被本机应用控制策略阻止，使用工具提供的Codex内置Python执行同一个scripts/verify-package.py校验成功：MV3、ZIP完整、版本一致、共享模块/记忆模块逐字一致且无配置密钥；没有更改系统策略。预览夹具改为读取统一额度，未运行测试浏览器或修改用户实际扩展存储。
 - 打包验证后直接运行service-control.mjs start更新本项目正式服务，NoProxy直连43187/health确认0.2.18、主体模型ready、SIFT ready；人体关注与诊断模型按需加载。未停止其他项目或修改自启。git diff --check通过，fetch确认起点与origin/main一致。使用新版需重新加载0.2.18扩展、刷新TEMU后重新查找；当前会话分析如需留档先导出，storage.local长期人工记忆保留。
+
+## 2026-10-17：商品悬停大图与收起结果列表0.2.19
+
+- 开始时main/2108db1/0.2.18工作区干净，已读共同维护约定、README和验证记录。用户要求商品图悬停看大图，并收起查找结果以方便查看下方关键词。本次只改侧栏交互，50条总额度、每批12条、title-groups-outline-v16和长期人工分类规则不变。
+- 参考图和三个分类中的候选缩略图支持鼠标悬停、键盘聚焦预览。大图直接复用缩略图现有src，不构造其他图片地址、处理/删除原图或自动打开商品详情页；尺寸和位置限定在可视侧栏内，等比例完整显示，浮层pointer-events:none。移出、失焦、Esc、视口变化、隐藏/更换商品或收起列表会关闭。滚动时关闭鼠标预览；键盘自动滚动后仍在视口的聚焦图片重新定位，避免焦点预览刚打开就关闭。价格/进度重绘后仅在相同来源/商品ID、相同图片且仍位于原鼠标位置时沿用，避免错图残留。图片清晰度受已抓取原图限制。
+- 查找结果表头新增“收起列表 / 展开列表”及aria-expanded/controls，收起保留真实数量并展开已有“销量与关键词”，无需经过整列商品。核对完成后的结果表头在长列表滚动时置顶；核对进行时沿用原进度卡片置顶。收起仅隐藏三类列表，不停止处理或删除商品；刷新计数/价格/分类和导出仍完整，更新不擅自展开，重新选图或上传恢复展开。原分类页签、人工决定与原证据保持。
+- 新增2项行为检查：悬停/聚焦正确原图与标题、窄屏位置、重绘保持、切分类/移出/滚动/Esc/窗口变化关闭，预览无商品页/采集请求；收起后关键词打开、数据未删、跨侧栏人工分类变化仍保持收起、计数/完整导出更新、展开恢复分类。既有14项交互检查通过；随后运行panel-interaction、panel、panel-limit、panel-resume、panel-outline-migration、collection共46项全部通过，0失败/跳过，约37.1秒。日志.cache/validation-0.2.19-panel.log不入Git；未改识别算法，未重跑模型全量测试，测试不代表真实识别准确率。
+- 43211隔离预览使用--top10与明确测试标题/价格，未运行真实账号图搜。实际浏览器390×840验证键盘聚焦大图、自动滚动定位、Esc关闭、PageDown长列表表头top=8、收起后直接显示原词、展开仍有13张卡片；预览边界left=12/right=363/top=233/bottom=608，内容宽375，无横向溢出。鼠标over/out路径另由上述DOM事件检查覆盖，没有宣称实际鼠标移动的端到端验证。截图.cache/ui-validation/image-preview-0.2.19.jpg与collapsed-results-0.2.19.jpg不入Git；临时视口已恢复、测试页关闭、43211服务停止，没有修改用户扩展存储。
+- node scripts/package.mjs生成23文件、81,765字节ZIP；用现有Codex内置Python执行scripts/verify-package.py通过MV3、版本0.2.19、共享/记忆模块逐字一致和无配置密钥检查，稳定扩展ID保持ofacjamiaffjahodlncfbcpekooecjno。随后直接执行service-control.mjs start更新正式服务，NoProxy直连43187/health确认0.2.19、主体模型ready、SIFT ready，人体关注/诊断按需加载。未停止其他项目或改自启；git diff --check通过，fetch确认起点与origin/main一致。
+- AGENTS、README和安装说明同步操作。需重新加载0.2.19扩展、刷新TEMU并重开侧栏；当前会话结果如需留档先导出JSON，长期人工分类记忆继续保留。没有代用户重载已安装扩展或发起真实图搜，不将隔离预览当作真实账号或全品类准确率验证。

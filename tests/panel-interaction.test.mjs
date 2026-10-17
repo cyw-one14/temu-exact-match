@@ -183,3 +183,35 @@ test('upload and login steps automatically reveal their next action without expo
   assert.equal(ui.get('provider-section').hidden,false);assert.equal(ui.get('provider-section').open,true);assert.equal(ui.get('analyze').hidden,true);assert.match(ui.get('show-provider').textContent,/上传图片/);assert.match(ui.get('read-provider').textContent,/已上传/);assert.equal(ui.get('more-tools').hasAttribute('open'),false);ui.close();
   ui=await mount({...base,providerJob:{tabId:7,manualUpload:false},collection:{source:'provider',tabId:7,status:'paused',reason:'login',productIds:[],pageKeys:[]}});assert.equal(ui.get('provider-section').open,true);assert.match(ui.get('provider-label').textContent,/需要你处理/);assert.equal(ui.get('show-provider').hidden,false);assert.equal(ui.get('more-tools').hasAttribute('open'),false);ui.close();
 });
+
+test('hover and keyboard previews reuse the captured image, stay inside a narrow viewport and close when their product is hidden',async()=>{
+  const items=[makeItem('601123456789031'),makeItem('601123456789032','different')],ui=await mount(savedState(items));
+  const rect={left:30,right:108,top:500,bottom:594},image=ui.get('exact-results').querySelector('img'),proto=Object.getPrototypeOf(image),original=Object.getOwnPropertyDescriptor(proto,'getBoundingClientRect');
+  const emit=(target,type,properties={})=>{const event=new ui.window.Event(type,{bubbles:true});Object.assign(event,properties);target.dispatchEvent(event);};
+  try{
+    proto.getBoundingClientRect=()=>rect;ui.get('image-preview').getBoundingClientRect=()=>({height:0});ui.window.innerWidth=390;ui.window.innerHeight=840;
+    emit(image,'mouseover',{clientX:60,clientY:540});
+    assert.equal(ui.get('image-preview').hidden,false);assert.equal(ui.get('image-preview-image').getAttribute('src'),items[0].imageUrl);assert.equal(ui.get('image-preview-caption').textContent,items[0].title);
+    assert.equal(ui.get('image-preview').style.width,'366px');assert.ok(parseFloat(ui.get('image-preview').style.left)>=12);assert.ok(parseFloat(ui.get('image-preview').style.top)>=12);
+    emit(ui.get('result-sort'),'change');assert.equal(ui.get('image-preview').hidden,false,'ordinary progress/price redraw keeps the same hovered product');
+    ui.get('tab-different').click();assert.equal(ui.get('image-preview').hidden,true);assert.equal(ui.get('image-preview-image').hasAttribute('src'),false);
+    const other=ui.get('excluded-results').querySelector('img');emit(other,'mouseover',{clientX:60,clientY:540});assert.equal(ui.get('image-preview-image').getAttribute('src'),items[1].imageUrl);
+    emit(ui.document,'scroll');assert.equal(ui.get('image-preview').hidden,true);
+    Object.defineProperty(ui.document,'activeElement',{value:other,configurable:true});emit(other,'focusin');emit(ui.document,'scroll');assert.equal(ui.get('image-preview').hidden,false,'keyboard auto-scroll must not cancel its own preview');
+    emit(ui.document,'keydown',{key:'Escape'});assert.equal(ui.get('image-preview').hidden,true);
+    emit(other,'mouseover',{clientX:60,clientY:540});emit(other,'mouseout');assert.equal(ui.get('image-preview').hidden,true);
+    emit(other,'focusin');emit(ui.window,'resize');assert.equal(ui.get('image-preview').hidden,true);
+    assert.equal(ui.requests.length,0);assert.equal(ui.messages.length,0,'preview cannot open or collect product pages');
+  }finally{if(original)Object.defineProperty(proto,'getBoundingClientRect',original);else delete proto.getBoundingClientRect;ui.close();}
+});
+
+test('collapsing results reveals keywords, keeps all records and stays collapsed while classifications update',async()=>{
+  const items=[makeItem('601123456789041'),makeItem('601123456789042'),makeItem('601123456789043','different')],saved=savedState(items),ui=await mount(saved);
+  assert.equal(ui.get('results-body').hidden,false);ui.get('toggle-results').click();
+  assert.equal(ui.get('results-body').hidden,true);assert.equal(ui.get('toggle-results').getAttribute('aria-expanded'),'false');assert.equal(ui.get('toggle-results').textContent,'展开列表');assert.equal(ui.get('keyword-section').open,true);assert.match(ui.get('results-collapsed-note').textContent,/已收起 3 条/);assert.equal(ui.get('exact-results').children.length,2);
+  const referenceKey=await referenceMemoryKey(saved),key=memoryStorageKey(referenceKey),record={schema:1,referenceKey,revision:1,entries:{[candidateMemoryKey(items[0])]:{source:'user',decision:'different',updatedAt:'2026-10-17T01:00:00Z'}}};
+  ui.changeListeners.forEach(listener=>listener({[key]:{newValue:record}},'local'));
+  assert.equal(ui.get('results-body').hidden,true);assert.equal(ui.get('same-total').textContent,'1');assert.equal(ui.get('different-total').textContent,'2');assert.match(ui.get('result-total').textContent,/3 条/);
+  const exported=await exportData(ui);assert.equal(exported.products.length,3);assert.equal(exported.products[0].effectiveStatus,'manual-different');assert.equal(exported.products[0].title,items[0].title);
+  ui.get('toggle-results').click();assert.equal(ui.get('results-body').hidden,false);assert.equal(ui.get('toggle-results').getAttribute('aria-expanded'),'true');assert.equal(ui.get('tab-same').getAttribute('aria-selected'),'true');assert.equal(ui.get('exact-results').children.length,1);assert.equal(ui.requests.length,0);ui.close();
+});
