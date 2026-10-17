@@ -37,12 +37,21 @@
     return null;
   }
   function cardOwner(img){
-    const root=img.closest('article,[role="listitem"],[data-product-id],[data-goods-id]');
+    // TEMU home-list images sit several wrappers below their sibling link.
+    // Use the public product container rather than a fixed ancestor depth.
+    const root=img.closest('article,[role="listitem"],[data-product-id],[data-goods-id],[data-tooltip^="goodContainer-"]');
     if(!root)return null;
     const direct=root.getAttribute('data-product-id')||root.getAttribute('data-goods-id');
     const ids=new Set([...root.querySelectorAll('a[href]')].map(link=>identity(link.href)).filter(Boolean));
     if(/^\d{6,25}$/.test(direct||''))ids.add(direct);
-    return ids.size===1?{root,id:[...ids][0]}:null;
+    for(const node of [root,...root.querySelectorAll('[data-tooltip^="goodContainer-"],[data-tooltip^="goodsImage-"],[data-tooltip^="goodName-"]')]){
+      const id=node.getAttribute('data-tooltip')?.match(/^(?:goodContainer|goodsImage|goodName)-(\d{6,25})$/)?.[1];
+      if(id)ids.add(id);
+    }
+    // A reused virtual card can update its markers/link at different times.
+    // Keep conflicts blocked; never fall back to the detail page's hero ID.
+    const explicitOwner=/^\d{6,25}$/.test(direct||'')||/^goodContainer-\d{6,25}$/.test(root.getAttribute('data-tooltip')||'');
+    return ids.size?{root,id:ids.size===1?[...ids][0]:'',conflict:explicitOwner&&ids.size>1}:null;
   }
   function selection(img,declarations=new Map(),heroes=new Map()){
     const imageUrl=imageURL(img);if(!imageUrl||/^(?:temu|(?:temu\s+)?logo|avatar)$/i.test((img.alt||'').trim()))return null;
@@ -50,6 +59,7 @@
     const current=identity(location.href),anchor=img.closest('a[href]');
     if(anchor&&identity(anchor.href)){productId=identity(anchor.href);productIdSource='enclosing-product-link';root=anchor;}
     const ownCard=cardOwner(img);
+    if(ownCard&&(ownCard.conflict||!productId&&!ownCard.id||productId&&ownCard.id&&ownCard.id!==productId))return null;
     if(!productId&&ownCard){productId=ownCard.id;productIdSource='scoped-product-card';root=ownCard.root;}
     const asset=value=>{try{const url=new URL(value);return url.origin+url.pathname;}catch{return '';}};
     const bound=[...declarations.values()].filter(product=>product.images?.some(value=>asset(value)===asset(imageUrl)));
@@ -140,7 +150,7 @@
     for(const [img,button]of buttons)if(!keep.has(img)){button.remove();buttons.delete(img);}
   }
   function schedule(){if(!scheduled){scheduled=true;requestAnimationFrame(refresh);}}
-  new MutationObserver(records=>{if(records.some(record=>!host.contains(record.target)))schedule();}).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['src','srcset','data-src','hidden','aria-hidden','style','class']});
+  new MutationObserver(records=>{if(records.some(record=>!host.contains(record.target)))schedule();}).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['src','srcset','data-src','hidden','aria-hidden','style','class','href','alt','data-product-id','data-goods-id','data-tooltip','data-tooltip-title']});
   addEventListener('scroll',schedule,true);addEventListener('resize',schedule);document.addEventListener('load',schedule,true);
   chrome.storage.local.get('preferences').then(({preferences})=>{enabled=preferences?.imageButtons!==false;schedule();});
   chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.preferences){enabled=changes.preferences.newValue?.imageButtons!==false;schedule();}});

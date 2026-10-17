@@ -7,15 +7,58 @@ const source=await readFile(new URL('../extension/image-buttons.js',import.meta.
 const declarations=await readFile(new URL('../extension/structured-fields.js',import.meta.url),'utf8');
 
 async function mount(html,{url='https://www.temu.com/goods.html?goods_id=601123456789001',front='',rect=null,send=null}={}){
-  const {document}=parseHTML(html);let shadow;const original=document.createElement.bind(document),frames=[],messages=[];
+  const {document}=parseHTML(html);let shadow;const original=document.createElement.bind(document),frames=[],messages=[],observers=[];
   document.createElement=(...args)=>{const node=original(...args),attach=node.attachShadow.bind(node);node.attachShadow=options=>{shadow=attach(options);return shadow;};return node;};
   for(const img of document.querySelectorAll('img')){const size=img.getAttribute('data-small')?100:600;img.getBoundingClientRect=()=>typeof rect==='function'?rect(img):rect||({left:20,top:30,right:20+size,bottom:30+size,width:size,height:size});img.getClientRects=()=>[img.getBoundingClientRect()];}
   if(front)document.elementsFromPoint=(x,y)=>typeof front==='function'?front(document,x,y):[document.getElementById(front),document.querySelector('main')];
   const timers=new Map();let timerId=0;
-  const context=vm.createContext({document,location:new URL(url),URL,Map,Set,String,Number,Math,innerWidth:1000,innerHeight:800,requestAnimationFrame:fn=>frames.push(fn),MutationObserver:class{observe(){}},getComputedStyle:node=>({display:node.style.display||'block',visibility:node.style.visibility||'visible',opacity:node.style.opacity||'1'}),addEventListener:()=>{},setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id),chrome:{runtime:{sendMessage:message=>{messages.push(message);return send?send(message):Promise.resolve({ok:true});}},storage:{local:{get:async()=>({})},onChanged:{addListener:()=>{}}}}});
+  const context=vm.createContext({document,location:new URL(url),URL,Map,Set,String,Number,Math,innerWidth:1000,innerHeight:800,requestAnimationFrame:fn=>frames.push(fn),MutationObserver:class{constructor(callback){this.callback=callback;}observe(target,options){observers.push({callback:this.callback,target,options});}},getComputedStyle:node=>({display:node.style.display||'block',visibility:node.style.visibility||'visible',opacity:node.style.opacity||'1'}),addEventListener:()=>{},setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id),chrome:{runtime:{sendMessage:message=>{messages.push(message);return send?send(message):Promise.resolve({ok:true});}},storage:{local:{get:async()=>({})},onChanged:{addListener:()=>{}}}}});
   vm.runInContext(declarations,context);vm.runInContext(source,context);await Promise.resolve();while(frames.length)frames.shift()();
-  return {document,shadow,messages,timers,flush:()=>{while(frames.length)frames.shift()();}};
+  return {document,shadow,messages,timers,observers,flush:()=>{while(frames.length)frames.shift()();}};
 }
+
+// Public tooltip markers and sibling links observed on the TEMU home list.
+// Deep image wrappers are deliberate; no application state or private API data.
+function listCard(id,title,image){
+  return `<div data-tooltip="goodContainer-${id}" data-tooltip-title="${title}"><div><div data-tooltip="goodsImage-${id}" data-tooltip-title="${title}">${'<div>'.repeat(5)}<img aria-hidden="true" src="https://img.kwcdn.com/placeholder-${image}.jpg"><img src="https://img.kwcdn.com/${image}.jpg" alt="商品图片 ${title}">${'</div>'.repeat(5)}</div><a href="https://www.temu.com/original-g-${id}.html"><div data-tooltip="goodName-${id}" data-tooltip-title="${title}"><h3>${title}</h3></div></a></div></div>`;
+}
+
+test('deep home-list thumbnails get separate buttons bound to their public card ID and original title without opening details',async()=>{
+  const app=await mount('<html><body><main>'+listCard('601123456789071','Original glove listing','gloves')+listCard('601123456789072','Original comb listing','comb')+'</main></body></html>',{url:'https://www.temu.com/',rect:img=>({left:img.src.includes('comb')?300:20,top:100,right:img.src.includes('comb')?556:276,bottom:356,width:256,height:256})});
+  const buttons=[...app.shadow.querySelectorAll('button')];assert.equal(buttons.length,2);
+  for(const button of buttons)button.click();
+  assert.deepEqual(app.messages.map(message=>[message.selection.productId,message.selection.imageUrl,message.selection.title]),[
+    ['601123456789071','https://img.kwcdn.com/gloves.jpg','Original glove listing'],
+    ['601123456789072','https://img.kwcdn.com/comb.jpg','Original comb listing']
+  ]);
+  assert.ok(app.messages.every(message=>message.selection.productIdSource==='scoped-product-card'&&message.selection.titleSource==='product-title-element'));
+});
+
+test('a list card with conflicting public IDs cannot borrow an adjacent ID or the current detail product',async()=>{
+  const markup=listCard('601123456789071','Original glove listing','gloves').replace('/original-g-601123456789071.html','/original-g-601123456789072.html');
+  const app=await mount('<html><body><main>'+markup+'</main></body></html>');
+  assert.equal(app.shadow.querySelectorAll('button').length,0);assert.equal(app.messages.length,0);
+});
+
+test('separate product links inside a generic multi-product article remain individually bound',async()=>{
+  const app=await mount('<html><body><article><a href="https://www.temu.com/gloves-g-601123456789071.html" title="Original glove listing"><img src="https://img.kwcdn.com/gloves.jpg"></a><a href="https://www.temu.com/comb-g-601123456789072.html" title="Original comb listing"><img src="https://img.kwcdn.com/comb.jpg"></a></article></body></html>',{url:'https://www.temu.com/'});
+  for(const button of app.shadow.querySelectorAll('button'))button.click();
+  assert.deepEqual(app.messages.map(message=>message.selection.productId),['601123456789071','601123456789072']);
+});
+
+test('virtual list card identity changes refresh buttons and reject a temporarily inconsistent reused card',async()=>{
+  const app=await mount('<html><body>'+listCard('601123456789071','Original glove listing','gloves')+'</body></html>',{url:'https://www.temu.com/'});
+  const root=app.document.querySelector('[data-tooltip^="goodContainer-"]'),observer=app.observers[0];
+  assert.ok(observer.options.attributeFilter.includes('data-tooltip'));assert.ok(observer.options.attributeFilter.includes('href'));
+  assert.equal(app.shadow.querySelectorAll('button').length,1);
+  root.setAttribute('data-tooltip','goodContainer-601123456789072');observer.callback([{target:root}]);app.flush();
+  assert.equal(app.shadow.querySelectorAll('button').length,0);
+  for(const node of root.querySelectorAll('[data-tooltip]')){node.setAttribute('data-tooltip',node.getAttribute('data-tooltip').replace('601123456789071','601123456789072'));node.setAttribute('data-tooltip-title','Updated comb listing');}
+  root.querySelector('a').setAttribute('href','https://www.temu.com/comb-g-601123456789072.html');
+  root.querySelector('img:not([aria-hidden])').setAttribute('src','https://img.kwcdn.com/comb.jpg');
+  observer.callback([{target:root}]);app.flush();app.shadow.querySelector('button').click();
+  assert.equal(app.messages[0].selection.productId,'601123456789072');assert.equal(app.messages[0].selection.imageUrl,'https://img.kwcdn.com/comb.jpg');assert.equal(app.messages[0].selection.title,'Updated comb listing');
+});
 
 test('a visible button clipped to the viewport edge still dispatches its own product image',async()=>{
   const app=await mount('<html><body><main><img src="https://img.kwcdn.com/a.jpg" alt="Actual gloves"></main></body></html>',{rect:{left:970,top:30,right:1170,bottom:230,width:200,height:200}});

@@ -454,3 +454,12 @@
 - 43214独立--top10预览使用明确标为界面测试的13件数据、本地图片和浏览器API替身，无真实账号查询。实际浏览器确认图片旁直接显示销量与原词，卡片展开可查看原文证据和采集页面；320×800临时视口下原词自动换行，clientWidth与scrollWidth均305，无横向溢出。截图.cache/ui-validation/card-keywords-0.3.5.png、card-keywords-narrow-0.3.5.png不入Git或安装包；恢复视口、关闭验证标签，只停止本次创建的43214进程，保留用户43211页和实际扩展存储。
 - node scripts/package.mjs与python scripts/verify-package.py通过：0.3.5 ZIP79文件、316,251,767字节，SHA-256为83913D1A46DCD2266F7A59F65D90AAB018EC685BF79A7245498DECEFD19BFFBC，版本ZIP和摘要留在dist。固定模型、Python/shared源、安全策略与稳定ID校验通过，另逐字核对28个包内入口与当前磁盘一致；版本、README、安装说明与AGENTS同步。
 - 打包后直接执行service-control.mjs start，NoProxy直连43187/health确认兼容服务0.3.5、主体与SIFT ready，其他模型按需idle；未改自启，新浏览器扩展仍不依赖该服务。fetch确认origin/main与本次起点一致。用户先导出需要保留的本次JSON，再重新加载项目extension并刷新TEMU即可使用；长期人工分类保留，未代用户重载扩展或清理数据。
+
+## 2026-10-17：首页与商品列表小图查同款入口0.3.6
+
+- 起点main/8524a2d/0.3.5工作区干净，已读AGENTS、README和验证记录。用户截图显示详情大图有按钮、首页小图没有。通过浏览器只读检查用户已打开的TEMU首页可见商品DOM，确认图片位于多层div内，所属链接到第7层才出现，公开goodContainer商品容器在第8层；旧代码只查6层且不识别该容器，所以无法绑定ID。可见图与aria-hidden占位图共存。没有读取私有应用状态、账号数据或打开商品详情。
+- 新增公开goodContainer卡片识别，核对其goodContainer/goodsImage/goodName标识与所属商品链接，按当前图片和该商品原标题显示右上角按钮。显式归属冲突时不显示/发送，不借用当前详情或邻居ID；普通多商品article中的独立包图链接仍各自可用。监听href/alt/商品标识/标题变化后刷新，虚拟列表分步更新时先隐藏冲突条目，完整更新后重新绑定。保留点击时重查、位置变化反馈、隐藏图过滤、设置开关及详情大图入口，不增加权限，不改图片/识别规则或50条额度。
+- 先按实际公开DOM结构新增回归用例，旧代码复现深层小图0按钮、冲突卡片误借当前ID和标识变更不刷新；修复后相关20项通过。完整node --test --test-concurrency=1 tests/*.test.mjs最终189项通过，0失败/跳过，约60.42秒，日志.cache/validation-0.3.6-final.log。覆盖双商品图片/ID/原标题独立、隐藏占位图、归属冲突、虚拟卡片复用、多链接区域兼容及原详情入口。此前首轮188项亦通过，追加兼容用例与修正后重新跑完整检查；不以测试通过宣称商品识别准确率。
+- scripts/preview-image-buttons.mjs新增--listing与可选端口，43215独立浏览器预览使用3张此前已抓取官方图片及明确标为测试的标题/ID，运行生产按钮脚本，只替身捕获消息、不发真实图搜。最终脚本刷新后3个小图均显示按钮，点击木梳得到木梳图片与测试ID601999999999902，URL仍为预览列表，没有进入商品详情。截图.cache/ui-validation/list-buttons-0.3.6.png不入Git或安装包；验证标签关闭，只停止本次43215预览进程，用户已打开的TEMU/第三方/其他页面与扩展存储未修改。
+- 最终node scripts/package.mjs及python scripts/verify-package.py通过：0.3.6 ZIP79文件、316,252,141字节，SHA-256为D7D5DB8478A4E42FDDB0E9606A6179BCED155519EC01826753EC3C2E0D1C697C，版本ZIP和摘要保留dist。固定模型、Python/shared源码、MV3/WASM安全策略与稳定ID验证通过，另逐字核对28个包内入口与磁盘最新文件一致；版本、README、安装说明与AGENTS同步，测试预览脚本不入包。
+- 打包后执行service-control.mjs start，NoProxy直连43187/health确认兼容服务0.3.6、主体与SIFT ready，其他模型按需idle；新扩展仍不依赖该服务，未改自启。fetch确认origin/main与起点一致，git diff --check通过。用户先导出需要保留的本次JSON，再重新加载原项目extension并刷新TEMU首页/列表；长期人工分类保留，未代用户重载或清理数据。
