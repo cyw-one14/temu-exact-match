@@ -22,7 +22,7 @@ export async function packageNative(){
   const copy=async(relative,source=path.join(root,relative))=>{const file=path.join(stage,relative);await mkdir(path.dirname(file),{recursive:true});await copyFile(source,file);};
   for(const name of roots)await copy('extension/'+name);
   for(const directory of ['server','shared'])for(const name of await readdir(path.join(root,directory)))if(/\.(?:mjs|py|txt|html|css|js)$/.test(name))await copy(directory+'/'+name);
-  for(const name of ['service-runtime','service-control','service-autostart','distribution','install-local'])await copy('scripts/'+name+'.mjs');
+  for(const name of ['service-runtime','service-control','service-autostart','service-watchdog','watchdog-policy','service-shortcut','distribution','install-local'])await copy('scripts/'+name+'.mjs');
   await copy('browser/photo-cache.mjs');
   await copy('package.json');await copy('安装说明.md');
   await copy('native/runtime-lock.json');

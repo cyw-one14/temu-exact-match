@@ -188,12 +188,30 @@ test('pausing cancels the native request and health polling does not resume work
   }finally{ui?.close();globalThis.setInterval=originalInterval;}
 });
 
-test('a failed connection has a visible progress error and preserves the unconfirmed result',async()=>{
+test('a dropped connection shows recovery, retains progress and retries the same unfinished subject without a click',async()=>{
   const item=makeItem('601123456789007','pending');delete item.subjectAttempt;
-  const ui=await mount(savedState([item]),{compare:()=>{throw new TypeError('TEST connection failure');}});
-  await until(()=>ui.get('progress-title').textContent==='处理遇到问题');
-  assert.match(ui.get('progress-detail').textContent,/本机识别初始化失败/);
-  assert.equal(ui.get('analysis-progress').dataset.phase,'error');assert.equal(ui.get('exact-results').children.length,0);assert.equal(ui.saved.items[0].status,'pending');ui.close();
+  let attempts=0,release;
+  const ui=await mount(savedState([item]),{compare:()=>{if(++attempts===1)throw new TypeError('TEST connection failure');return new Promise(resolve=>{release=resolve;});}});
+  try{
+    await until(()=>ui.get('progress-title').textContent==='后台正在自动恢复');
+    assert.equal(ui.get('progress-percent').textContent,'0%');assert.equal(ui.get('exact-results').children.length,0);assert.equal(ui.get('service-help').hidden,false);
+    await until(()=>release);release({status:'visual-match',evidence:['TEST recovered native subject']});
+    await until(()=>ui.saved?.items[0].status==='visual-match'&&ui.get('cancel').hidden);
+    assert.equal(ui.get('progress-percent').textContent,'100%');assert.equal(attempts,2);assert.equal(ui.saved.items[0].id,item.id);
+  }finally{release?.({status:'pending'});ui.close();}
+});
+
+test('an extended service outage never completes the product and health recovery resumes it without resetting results',async()=>{
+  const originalInterval=globalThis.setInterval;let tickHealth,ui,offline=true;
+  globalThis.setInterval=(callback,ms,...args)=>{if(ms===5000)tickHealth=callback;return originalInterval(callback,ms,...args);};
+  try{
+    const item=makeItem('601123456789090','pending');delete item.subjectAttempt;
+    ui=await mount(savedState([item]),{compare:()=>{if(offline)throw Object.assign(Error('TEST temporary service outage'),{serviceUnavailable:true});return {status:'visual-match'};}});
+    await until(()=>ui.saved?.items[0].serviceInterrupted&&ui.get('cancel').hidden);
+    assert.equal(ui.get('progress-percent').textContent,'0%');assert.equal(ui.saved.items[0].subjectAttempt,undefined);assert.equal(ui.saved.items[0].status,'pending');
+    offline=false;await tickHealth();await until(()=>ui.saved?.items[0].status==='visual-match');
+    assert.equal(ui.saved.items[0].priceText,item.priceText);assert.equal(ui.saved.items[0].title,item.title);
+  }finally{ui?.close();globalThis.setInterval=originalInterval;}
 });
 
 test('a failed image download can be rechecked without retaining its old error or losing the captured product fields',async()=>{

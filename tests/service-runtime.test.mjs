@@ -18,3 +18,12 @@ test('the launcher rejects unsupported Node runtimes and pairs with the extensio
   const manifest=JSON.parse(await readFile(new URL('../extension/manifest.json',import.meta.url),'utf8'));
   assert.equal(extensionId(manifest.key),'ofacjamiaffjahodlncfbcpekooecjno');
 });
+
+test('supervisor records must name the owned watchdog as the first Node argument',()=>{
+  const watchdog=root+'\\scripts\\service-watchdog.mjs',owned={...record,role:'watchdog',serverPath:watchdog};
+  const info={ProcessId:123,Name:'node.exe',CommandLine:'node.exe "'+watchdog+'"'};
+  assert.equal(isOwnedProcess(owned,info,root),true);
+  assert.equal(isOwnedProcess(owned,{...info,CommandLine:'node.exe other.mjs "'+watchdog+'"'},root),false);
+  assert.equal(isOwnedProcess({...owned,role:'server'},info,root),false);
+  assert.equal(isOwnedProcess(owned,{...info,ProcessId:124},root),false);
+});

@@ -11,6 +11,7 @@ const execute=promisify(execFile),delay=ms=>new Promise(resolve=>setTimeout(reso
 export const projectRoot=fileURLToPath(new URL('../',import.meta.url));
 const recordPath=path.join(projectRoot,'.local-runtime.json');
 const serverPath=path.join(projectRoot,'server','index.mjs');
+const watchdogPath=path.join(projectRoot,'scripts','service-watchdog.mjs');
 const cachePath=path.join(projectRoot,'.cache');
 const port=Number(process.env.TEMU_MATCH_PORT||43187);
 const normalized=value=>path.resolve(String(value)).toLowerCase();
@@ -22,7 +23,7 @@ export function extensionId(key){
   return [...createHash('sha256').update(Buffer.from(key,'base64')).digest().subarray(0,16)].map(value=>String.fromCharCode(97+(value>>4),97+(value&15))).join('');
 }
 export function isOwnedProcess(record,info,root=projectRoot){
-  const expected=path.join(root,'server','index.mjs');
+  const expected=record?.role==='watchdog'?path.join(root,'scripts','service-watchdog.mjs'):path.join(root,'server','index.mjs');
   if(!record||!Number.isInteger(record.processId)||record.processId<=0||normalized(record.serverPath||'')!==normalized(expected)||normalized(record.projectRoot||'')!==normalized(root))return false;
   if(!info||info.ProcessId!==record.processId||!/^node(?:\.exe)?$/i.test(info.Name||''))return false;
   // The first Node argument must be this project's server, not a later argument or a similar path.
@@ -32,7 +33,7 @@ export function isOwnedProcess(record,info,root=projectRoot){
 async function readRecord(){
   try{return JSON.parse((await readFile(recordPath,'utf8')).replace(/^\uFEFF/,''));}catch(error){if(error.code==='ENOENT')return null;throw new Error('服务记录无法读取，请检查 .local-runtime.json');}
 }
-async function processInfo(pid){
+export async function processInfo(pid){
   if(!Number.isInteger(pid)||pid<=0)throw new Error('服务进程编号无效');
   if(process.platform!=='win32')throw new Error('该启动器用于 Windows');
   // Inline read-only commands work when execution policy blocks .ps1 files.
@@ -54,18 +55,23 @@ export function readHealth(){
 async function portIsFree(){
   return new Promise(resolve=>{const probe=net.createServer();probe.once('error',()=>resolve(false));probe.listen(port,'127.0.0.1',()=>probe.close(()=>resolve(true)));});
 }
-async function stopOwned(record){
-  if(normalized(record.serverPath||'')!==normalized(serverPath)||normalized(record.projectRoot||'')!==normalized(projectRoot))throw new Error('服务记录不属于本项目，未停止任何进程');
+export async function terminateOwnedProcess(record){
+  const expected=record?.role==='watchdog'?watchdogPath:serverPath;
+  if(normalized(record.serverPath||'')!==normalized(expected)||normalized(record.projectRoot||'')!==normalized(projectRoot))throw new Error('服务记录不属于本项目，未停止任何进程');
   const info=await processInfo(record.processId);
-  if(!info){await unlink(recordPath).catch(error=>{if(error.code!=='ENOENT')throw error;});return false;}
+  if(!info)return false;
   if(!isOwnedProcess(record,info))throw new Error('记录中的进程不属于本项目，未停止任何进程');
   // Updating the owned Node server must also release its Python child.
-  await execute('taskkill.exe',['/PID',String(record.processId),'/T','/F'],{windowsHide:true,timeout:10000});
+  try{await execute('taskkill.exe',['/PID',String(record.processId),'/T','/F'],{windowsHide:true,timeout:10000});}catch(error){if(await processInfo(record.processId))throw error;}
   for(let attempt=0;attempt<30;attempt++){
     try{process.kill(record.processId,0);}catch(error){if(error.code==='ESRCH')break;throw error;}
     await delay(100);
   }
-  await unlink(recordPath).catch(error=>{if(error.code!=='ENOENT')throw error;});return true;
+  return true;
+}
+async function stopOwned(record){
+  const stopped=await terminateOwnedProcess(record);
+  await unlink(recordPath).catch(error=>{if(error.code!=='ENOENT')throw error;});return stopped;
 }
 export async function stopService(){
   const record=await readRecord();if(!record){console.log('没有本项目记录的识别服务。');return;}
@@ -95,7 +101,8 @@ export async function startService({showSetup=false}={}){
   const id=extensionId(manifest.key),installationId=createHash('sha256').update(projectRoot.toLowerCase()).digest('hex').slice(0,20);
   const ready=health=>health?.ok&&health.version===manifest.version&&health.extensionId===id&&health.installationId===installationId;
   let health=await readHealth();
-  if(ready(health)){console.log('TEMU 识别服务已在运行：http://127.0.0.1:43187/setup');if(showSetup)await openSetup();return health;}
+  const resident=async record=>record?.role==='watchdog'&&record.version===manifest.version&&isOwnedProcess(record,await processInfo(record.processId));
+  if(ready(health)&&await resident(await readRecord())){console.log('TEMU 识别服务与自动恢复已在运行：http://127.0.0.1:43187/setup');if(showSetup)await openSetup();return health;}
   await mkdir(cachePath,{recursive:true});
   const lockPath=path.join(cachePath,'service-start.lock');let lock;
   try{lock=await open(lockPath,'wx');await lock.writeFile(JSON.stringify({pid:process.pid}));}
@@ -112,12 +119,16 @@ export async function startService({showSetup=false}={}){
   }
   try{
     health=await readHealth();
-    if(!ready(health)){
-      const record=await readRecord();
+    const record=await readRecord();
+    if(await resident(record)){
+      // Reuse a running supervisor even while its server is recovering.
+      for(let attempt=0;attempt<60&&!ready(health);attempt++){await delay(300);health=await readHealth();}
+      if(!ready(health))throw new Error('后台正在自动恢复，请稍候；持续无法恢复时请重新运行安装程序');
+    }else{
       if(record){
         const info=await processInfo(record.processId);
         if(info){if(isOwnedProcess(record,info))await stopOwned(record);else if(!await portIsFree())throw new Error('43187 端口被占用，服务记录中的进程不属于本项目');}
-        else await stopOwned(record);
+        else{await stopOwned(record);if(record.role==='watchdog')for(let attempt=0;attempt<30&&!await portIsFree();attempt++)await delay(100);}
       }
       if(!await portIsFree())throw new Error('43187 端口被其他程序占用，请关闭占用程序后重试');
       const env=await serviceEnvironment();
@@ -125,10 +136,10 @@ export async function startService({showSetup=false}={}){
       await stdout.write('\n['+new Date().toISOString()+'] 启动 '+manifest.version+'\n');
       let child;
       try{
-        child=spawn(process.execPath,[serverPath],{cwd:projectRoot,env,windowsHide:true,detached:true,stdio:['ignore',stdout.fd,stderr.fd]});
+        child=spawn(process.execPath,[watchdogPath],{cwd:projectRoot,env,windowsHide:true,detached:true,stdio:['ignore',stdout.fd,stderr.fd]});
         await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});child.unref();
       }finally{await stdout.close();await stderr.close();}
-      const newRecord={processId:child.pid,serverPath,projectRoot};await writeFile(recordPath,JSON.stringify(newRecord,null,2));
+      const newRecord={processId:child.pid,serverPath:watchdogPath,projectRoot,role:'watchdog',version:manifest.version};await writeFile(recordPath,JSON.stringify(newRecord,null,2));
       for(let attempt=0;attempt<60;attempt++){health=await readHealth();if(ready(health))break;try{process.kill(child.pid,0);}catch{break;}await delay(300);}
       if(!ready(health)){
         await stopOwned(newRecord);

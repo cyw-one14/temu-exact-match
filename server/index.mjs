@@ -208,6 +208,12 @@ export const server=http.createServer(async(req,res)=>{
 
 if(process.argv[1]===fileURLToPath(import.meta.url)){
   server.on('close',closeFastFeatures);
+  if(process.env.TEMU_WATCHDOG==='1'){
+    // A supervisor that is ended on its own must not leave an unsupervised
+    // server occupying the port and blocking the colleague's desktop launcher.
+    const parentEnded=()=>{closeFastFeatures();server.closeAllConnections();server.close();process.exit(0);};
+    process.stdin.once('end',parentEnded);process.stdin.once('error',parentEnded);process.stdin.resume();
+  }
   await mkdir(new URL('.cache/',ROOT),{recursive:true});
   server.listen(PORT,'127.0.0.1',()=>{
     console.log('TEMU 本机服务已启动：http://127.0.0.1:'+PORT+'/setup');

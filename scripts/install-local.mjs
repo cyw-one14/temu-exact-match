@@ -22,7 +22,7 @@ async function ensureRuntime(root,node){
   try{await run(installer,['/install','/norestart'],{windowsHide:false});}catch(error){if(![3010,1638].includes(error.code))throw Error('微软运行库安装未完成，请完成安装后再试');}
   await probe();
 }
-export async function install({destination=path.join(process.env.LOCALAPPDATA||'','TemuExactMatch'),autostart=true,showSetup=true}={}){
+export async function install({destination=path.join(process.env.LOCALAPPDATA||'','TemuExactMatch'),autostart=true,showSetup=true,desktop=true}={}){
   if(process.platform!=='win32'||process.arch!=='x64')throw Error('此安装包用于64位Windows10/11');
   const root=path.resolve(destination);if(root===path.parse(root).root||root===path.resolve(process.env.LOCALAPPDATA||'.')||root===path.resolve(source))throw Error('安装目录无效');
   const manifest=await verifyDistribution(source),marker=path.join(root,'.local-install.json');
@@ -43,9 +43,10 @@ export async function install({destination=path.join(process.env.LOCALAPPDATA||'
   await run(node,[path.join(root,'scripts/service-control.mjs'),'start',...(showSetup?['--open-setup']:[])],{windowsHide:true,timeout:120000,maxBuffer:100000});
   let ready=false;for(let attempt=0;attempt<120;attempt++){const health=await readHealth();if(health?.model?.state==='error')throw Error('后台模型准备失败：'+health.model.message);if(health?.version===manifest.version&&health.model?.state==='ready'){ready=true;break;}await new Promise(resolve=>setTimeout(resolve,1000));}
   if(!ready)throw Error('后台模型准备尚未完成，请查看本机助手状态页面');
+  if(desktop)await run(node,[path.join(root,'scripts/service-shortcut.mjs')],{windowsHide:true});
   console.log('安装完成。浏览器扩展加载目录：'+path.join(root,'extension'));
   return root;
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)){
-  try{const target=process.argv.find(arg=>arg.startsWith('--destination='))?.slice(14);await install({...(target?{destination:target}:{}),autostart:!process.argv.includes('--no-autostart'),showSetup:!process.argv.includes('--no-open')});}catch(error){console.error('安装未完成：'+error.message);process.exitCode=1;}
+  try{const target=process.argv.find(arg=>arg.startsWith('--destination='))?.slice(14);await install({...(target?{destination:target}:{}),autostart:!process.argv.includes('--no-autostart'),showSetup:!process.argv.includes('--no-open'),desktop:!process.argv.includes('--no-desktop')});}catch(error){console.error('安装未完成：'+error.message);process.exitCode=1;}
 }

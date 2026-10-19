@@ -15,6 +15,33 @@ test('cancellation discards late responses without stopping the resident service
 });
 test('wrong backend revisions, service errors and missing service stay visible failures',async()=>{
   const stale=new LocalEngineClient({fetchService:async()=>({ok:true,json:async()=>({ok:true,engineRevision:'old'})})});await assert.rejects(stale.request('/health'),/版本需要更新/);
-  const missing=new LocalEngineClient({fetchService:async()=>{throw new TypeError('network');}});await assert.rejects(missing.request('/compare',{}),/本机识别初始化失败/);
+  const missing=new LocalEngineClient({recoveryTimeoutMs:0,fetchService:async()=>{throw new TypeError('network');}});await assert.rejects(missing.request('/compare',{}),/本机识别初始化失败/);
   const failed=new LocalEngineClient({fetchService:async()=>({ok:false,json:async()=>({ok:false,error:'model failed'})})});await assert.rejects(failed.request('/compare',{}),/model failed/);
+});
+
+test('a dropped native request waits for ready then retries its original product payload once',async()=>{
+  const payload={candidateId:'A',imageUrl:'https://img.kwcdn.com/captured-A.jpg'},bodies=[],states=[];let polls=0;
+  const client=new LocalEngineClient({retryDelayMs:1,onConnectionState:state=>states.push(state),fetchService:async(url,options)=>{
+    if(url.endsWith('/health'))return {ok:true,json:async()=>({engineRevision:ENGINE_REVISION,model:{state:++polls===1?'loading':'ready'}})};
+    bodies.push(options.body);if(bodies.length===1){payload.candidateId='OTHER';throw new TypeError('connection lost');}
+    return {ok:true,json:async()=>({ok:true,comparison:{status:'pending'}})};
+  }});
+  const result=await client.request('/compare',payload);
+  assert.equal(result.comparison.status,'pending');assert.equal(polls,2);assert.deepEqual(states,['recovering','ready']);assert.equal(bodies.length,2);assert.equal(bodies[0],bodies[1]);assert.equal(JSON.parse(bodies[1]).candidateId,'A');
+});
+
+test('stopping during reconnection cancels retries and a prolonged outage remains an unfinished service error',async()=>{
+  const controller=new AbortController();let calls=0;
+  const client=new LocalEngineClient({onConnectionState:()=>controller.abort(),fetchService:async()=>{calls++;throw new TypeError('network');}});
+  await assert.rejects(client.request('/compare',{}, {signal:controller.signal}),{name:'AbortError'});assert.equal(calls,1);
+  const failed=new LocalEngineClient({recoveryTimeoutMs:0,fetchService:async()=>{throw new TypeError('network');}});
+  await assert.rejects(failed.request('/compare',{}),error=>error.serviceUnavailable===true&&/桌面/.test(error.message));
+});
+
+test('HTTP errors and a mismatched model version are never silently retried as recovered matches',async()=>{
+  let calls=0;
+  const rejected=new LocalEngineClient({fetchService:async()=>{calls++;return {ok:false,json:async()=>({ok:false,error:'bad captured input'})};}});
+  await assert.rejects(rejected.request('/compare',{}),/bad captured input/);assert.equal(calls,1);
+  const stale=new LocalEngineClient({retryDelayMs:1,fetchService:async url=>{if(!url.endsWith('/health'))throw new TypeError('offline');return {ok:true,json:async()=>({engineRevision:'old',model:{state:'ready'}})};}});
+  await assert.rejects(stale.request('/compare',{}),/版本需要更新/);
 });

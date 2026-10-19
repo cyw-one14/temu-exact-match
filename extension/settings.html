@@ -9,5 +9,5 @@
 <p class="hint">只读取页面真实展示的销量，不同来源和周期分别排序。未展示所选周期时显示未知。</p>
 <label for="max-candidates">每批核对数量</label><input id="max-candidates" type="number" min="1" max="40" value="12"><p class="hint">默认每批12条，后续自动继续。每次查找最多收集50条候选，不足按实际数量。通常无需修改。</p></div></details>
 <button id="save" class="primary" type="button">保存设置</button><p id="message" class="status" role="status" aria-live="polite"></p>
-<section><h2>本机后台服务</h2><p id="health" class="hint">正在检查…</p><button id="open-setup" type="button">检查后台服务</button><p class="hint">安装配套本机助手后，登录电脑自动在后台运行，关闭浏览器也会保持模型就绪。安装包包含运行环境，无需另外安装Node或Python。</p></section>
+<section><h2>本机后台服务</h2><p id="health" class="hint">正在检查…</p><button id="open-setup" type="button">重新连接后台</button><p class="hint">安装配套本机助手后，登录电脑自动在后台运行，后台意外退出会自动恢复，关闭浏览器也会保持模型就绪。长时间未恢复时，双击桌面“启动TEMU同款助手”，无需输入命令。安装包包含运行环境，无需另外安装Node或Python。</p></section>
 <details><summary>第一次怎么用？</summary><ol><li>在 TEMU 美国站商品图片上点“查同款”。</li><li>等待自动核对；需要登录或上传时，按侧栏提示继续。</li><li>查看“同款 / 未确定 / 非同款”，有误判可在卡片上调整，下次会记住。</li></ol><button id="open-temu" type="button">打开 TEMU</button></details></main><script type="module" src="settings.js"></script></body></html>

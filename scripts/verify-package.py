@@ -45,6 +45,8 @@ with ZipFile(archive) as package:
         assert package.read('extension/' + name + '.mjs') == (root / 'shared' / (name + '.mjs')).read_bytes()
     for name in ['feature_worker.py', 'instance_match.py', 'outline_match.py', 'index.mjs', 'subjects.mjs', 'native-runtime.mjs']:
         assert package.read('server/' + name) == (root / 'server' / name).read_bytes()
+    for name in ['service-runtime.mjs', 'service-control.mjs', 'service-autostart.mjs', 'service-shortcut.mjs', 'service-watchdog.mjs', 'watchdog-policy.mjs', 'install-local.mjs']:
+        assert package.read('scripts/' + name) == (root / 'scripts' / name).read_bytes()
     for entry in json.loads((root / 'browser/model-lock.json').read_text(encoding='utf-8'))['files']:
         name = 'runtime/' + entry['path']
         assert package.getinfo(name).file_size == entry['bytes']

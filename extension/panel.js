@@ -5,7 +5,7 @@ import {priceObservation,priceKindLabel} from './prices.mjs';
 import {listingMetadata,LISTING_LABELS} from './listing.mjs';
 import {COLLECTION_LIMIT,limitedCandidates,createCollection,pauseCollection,resumeCollection,collectionDecision,recordCollectionAdvance,collectionText} from './collection.mjs';
 import {referenceMemoryKey,candidateMemoryKey,memoryStorageKey,memoryRecord} from './manual-memory.mjs';
-import {engineRequest,closeEngine,ENGINE_REVISION} from './local-engine-client.mjs';
+import {engineRequest,closeEngine,ENGINE_REVISION,onEngineConnection} from './local-engine-client.mjs';
 
 const $=id=>document.getElementById(id);
 const windowId=(await chrome.windows.getCurrent()).id;
@@ -18,6 +18,11 @@ let providerTimer=null,providerReading=false,queuedSelection=null,selectionProce
 let autoPending=false,autoTimer=null,autoPaused=false,serviceAvailable=false;
 let storageWarning='';
 let activity=null,analysisError='';
+let waitingForService=false;
+const removeEngineConnection=onEngineConnection(connection=>{
+  if(connection==='recovering'){waitingForService=true;serviceAvailable=false;document.body.dataset.service='recovering';$('service-status').textContent='后台连接中断 · 正在自动恢复';$('service-help').hidden=false;renderProgress();}
+  else if(connection==='ready'){waitingForService=false;checkHealth();}
+});
 let resultTab='same',providerAutoOpen=false;
 let resultsCollapsed=false,previewAnchor=null,previewPointer=null;
 let manualRecord=null,manualWarning='',manualReadEpoch=0;
@@ -47,6 +52,7 @@ function renderProgress(){
   let title=({collect:'正在收集商品',images:'正在筛选图片',subject:'正在核对商品主体',complete:'核对完成'})[stage];
   let detail=activity?.detail||'';
   if(collecting)detail='先收集候选，再自动核对；最多'+COLLECTION_LIMIT+'条，不足时按实际数量。';
+  else if(waitingForService&&!cancelled){title='后台正在自动恢复';detail='当前结果已保留，连接恢复后会继续核对；未完成商品不会算作已完成。';}
   else if(analysisError){title='处理遇到问题';detail=analysisError;}
   else if(paused){title='核对已暂停';detail='已保留当前结果，点“继续核对”接着处理。';}
   else if(!total){title=blocked?'等待处理图搜页面':'等待商品结果';detail=$('provider-status').textContent;}
@@ -512,7 +518,7 @@ function requestAutoCompare(){
   autoPending=true;drainAutoCompare();
 }
 function drainAutoCompare(){
-  if(!autoPending||autoPaused||busy||providerReading||selectionProcessing||queuedSelection||autoTimer||state.collection?.status==='running')return;
+  if((waitingForService&&!serviceAvailable)||!autoPending||autoPaused||busy||providerReading||selectionProcessing||queuedSelection||autoTimer||state.collection?.status==='running')return;
   autoTimer=setTimeout(()=>{
     autoTimer=null;if(busy||providerReading||selectionProcessing||queuedSelection||state.collection?.status==='running')return;
     if(!autoPending||autoPaused)return;
@@ -691,7 +697,7 @@ async function acceptSelection(value){
   selectionProcessing=true;
   try{while(queuedSelection){
     const selected=queuedSelection;queuedSelection=null;cancelled=false;stopProviderWatch();
-    autoPending=false;autoPaused=false;activity=null;analysisError='';resultTab='same';resultsCollapsed=false;closeImagePreview();
+    autoPending=false;autoPaused=false;activity=null;analysisError='';waitingForService=false;resultTab='same';resultsCollapsed=false;closeImagePreview();
     state={...emptyState(),referenceImage:selected.imageUrl,selection:selected,profile:{name:selected.title||'网页选中商品',description:'已提取网页商品图片，结果出现后自动核对。'}};
     await loadManualMemory();if(queuedSelection)continue;
     for(const key of SPEC_KEYS)$('spec-'+key).value='';
@@ -803,7 +809,7 @@ async function compareItems({automatic=false}={}){
           priority=item.pageImagePriority={revision:state.matchRevision,imageUrl:item.imageUrl,imageSimilarity:result.comparison.imageSimilarity,samePhoto:result.comparison.samePhoto};
         }
         item.imageSimilarity=priority.imageSimilarity;item.samePhoto=priority.samePhoto;item.priorityScore=item.samePhoto?1:item.imageSimilarity;delete item.subject;delete item.priorityError;
-      }catch(error){if(cancelled)throw error;item.priorityError=error.message;item.status='pending';item.autoAttempt=state.matchRevision;item.missing=['图片读取失败：'+error.message];}
+      }catch(error){if(cancelled||error.serviceUnavailable)throw error;item.priorityError=error.message;item.status='pending';item.autoAttempt=state.matchRevision;item.missing=['图片读取失败：'+error.message];}
       prioritized++;status('图片初筛 '+prioritized+' / '+pool.length+'，准备优先核对外观最接近的商品…');
       setActivity('images','本批图片初筛 '+prioritized+' / '+pool.length+' 条。初筛后继续核对商品本身。');
     }
@@ -819,6 +825,7 @@ async function compareItems({automatic=false}={}){
     checkCancelled();if(manualDecision(item))continue;processed++;
     delete item.subjectAttempt;delete item.outlineMatch;delete item.instanceMatch;delete item.matchedReferenceImageUrl;delete item.referenceEvidence;delete item.listingColorMatch;
     status('页面图片匹配 '+processed+' / '+candidates.length+'：'+item.title.slice(0,55));
+    delete item.serviceInterrupted;
     setActivity('images','本批图片匹配 '+processed+' / '+candidates.length+' · '+item.title.slice(0,55));
     try{
       const first=await api('/compare',{phase:'page-match',candidateId:item.id,referenceImage:state.referenceImage,referenceImageUrl:state.selection?.imageUrl,referenceSpecs:state.referenceSpecs,imageUrl:item.imageUrl,candidateText:comparisonText(item)});
@@ -829,10 +836,11 @@ async function compareItems({automatic=false}={}){
       if(state.referenceContext?.variantAmbiguous&&item.status==='exact'){item.status='visual-match';item.missing=['原商品包含多个 SKU，具体规格未绑定'];}
     }catch(error){
       if(cancelled)throw error;
+      if(error.serviceUnavailable){item.serviceInterrupted=true;delete item.autoAttempt;throw error;}
       failures++;item.missing=[...(item.missing||[]),'读取或核对失败：'+error.message];
       if(!isProductMatch(item))item.status='pending';
       if(error.message.includes('安全验证')||error.message.includes('本机识别初始化失败')){render();await save();throw error;}
-    }finally{if(!cancelled)item.autoAttempt=state.matchRevision;}
+    }finally{if(!cancelled&&!item.serviceInterrupted)item.autoAttempt=state.matchRevision;}
     if(item.status==='pending'&&!item.priorityError)review.push(item);
     render();await save();
   }
@@ -850,6 +858,7 @@ async function compareItems({automatic=false}={}){
     checkCancelled();if(manualDecision(item))continue;reviewed++;
     prefetchImages(review.slice(reviewed,reviewed+3));
     status('后续图像核对 '+reviewed+' / '+review.length+'：'+item.title.slice(0,55));
+    delete item.serviceInterrupted;
     setActivity('subject','本批 '+reviewed+' / '+review.length+' · '+item.title.slice(0,38));
     try{
       const result=await api('/compare',{phase:'subject-review',candidateId:item.id,referenceImage:state.referenceImage,referenceImageUrl:state.selection?.imageUrl,referenceTitle,candidateTitle:item.title,referenceImages:['public-jsonld','bound-current-product-gallery'].includes(state.referenceContext?.imageSource)?state.referenceContext.referenceImages||[]:[],referenceImageSource:state.referenceContext?.imageSource||'',referenceSpecs:state.referenceSpecs,imageUrl:item.imageUrl,candidateImages:item.verifiedImages||[],candidateText:comparisonText(item)});
@@ -857,9 +866,10 @@ async function compareItems({automatic=false}={}){
       if((item.variantAmbiguous||state.referenceContext?.variantAmbiguous)&&item.status==='exact'){item.status='visual-match';item.missing=['多规格商品，具体 SKU / 对应价格未绑定'];}
     }catch(error){
       if(cancelled)throw error;
+      if(error.serviceUnavailable){item.serviceInterrupted=true;delete item.subjectAttempt;throw error;}
       failures++;item.missing=[...(item.missing||[]),'后续主体核对失败：'+error.message];
       if(error.message.includes('本机识别初始化失败')){render();await save();throw error;}
-    }finally{if(!cancelled)item.subjectAttempt=state.matchRevision;}
+    }finally{if(!cancelled&&!item.serviceInterrupted)item.subjectAttempt=state.matchRevision;}
     render();await save();
   }
   const exact=state.items.filter(isProductMatch).length;
@@ -893,7 +903,7 @@ async function search(){
 }
 async function run(task){
   if(busy)return;cancelled=false;analysisError='';setBusy(true);renderProgress();
-  try{await task();}catch(error){if(!cancelled)analysisError=error.message;status(error.message,true);}finally{activity=null;setBusy(false);render();await save();if(queuedSelection){const value=queuedSelection;queuedSelection=null;await acceptSelection(value);}drainAutoCompare();}
+  try{await task();}catch(error){if(!cancelled)analysisError=error.message;if(error.serviceUnavailable){waitingForService=true;serviceAvailable=false;autoPending=false;}status(error.message,true);}finally{activity=null;setBusy(false);render();await save();if(queuedSelection){const value=queuedSelection;queuedSelection=null;await acceptSelection(value);}drainAutoCompare();}
 }
 
 async function checkHealth(){
@@ -902,6 +912,7 @@ async function checkHealth(){
     const health=await engineRequest('/health');
     if(health.ok===false)throw new Error('识别引擎错误');
     const available=health.configured!==false&&health.model?.state!=='error';
+    if(available){if(waitingForService)analysisError='';waitingForService=false;$('service-help').hidden=true;}
     if(available&&!serviceAvailable){serviceAvailable=true;requestAutoCompare();}else serviceAvailable=available;
     const local=health.engine==='local'||health.engine==='browser';
     document.body.dataset.service=local?health.model.state:health.configured?'ready':'offline';
@@ -911,7 +922,7 @@ async function checkHealth(){
   }catch{
     serviceAvailable=false;
     document.body.dataset.service='offline';
-    $('service-status').textContent='本机助手尚未就绪 · 请检查是否已安装本机助手';$('prepare-model').hidden=false;
+    $('service-status').textContent='后台暂未连接 · 正在尝试恢复';$('prepare-model').hidden=false;$('service-help').hidden=false;
     if(!healthTimer)healthTimer=setInterval(checkHealth,5000);
   }
   renderProgress();
@@ -921,7 +932,7 @@ $('upload').addEventListener('change',()=>run(async()=>{
   const file=$('upload').files?.[0];if(!file)return;
   if(file.size>8_000_000||!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('请使用 8 MB 以下的 PNG、JPG 或 WebP 图片');
   const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('图片读取失败'));reader.readAsDataURL(file);});
-  stopProviderWatch();autoPending=false;autoPaused=false;activity=null;analysisError='';resultTab='same';resultsCollapsed=false;closeImagePreview();state={...emptyState(),referenceImage:data,referenceSpecs:getSpecs()};await loadManualMemory();
+  stopProviderWatch();autoPending=false;autoPaused=false;activity=null;analysisError='';waitingForService=false;resultTab='same';resultsCollapsed=false;closeImagePreview();state={...emptyState(),referenceImage:data,referenceSpecs:getSpecs()};await loadManualMemory();
   render();status('图片已上传，图搜结果出现后工具会自动核对。');
 }));
 $('replace-image').addEventListener('click',()=>{$('upload').value='';$('upload').click();});
@@ -953,10 +964,10 @@ $('read-provider').addEventListener('click',()=>{if(busy){
 $('stop-provider').addEventListener('click',()=>{pauseCurrentCollection();$('provider-status').textContent='已暂停采集。已抓取商品会自动核对，可继续采集后续结果。';});
 $('stop-collection').addEventListener('click',()=>pauseCurrentCollection());
 $('resume-collection').addEventListener('click',()=>{if(!state.collection)return;if(state.items.length>=COLLECTION_LIMIT){pauseCurrentCollection('limit-reached');return;}resumeCollection(state.collection);autoPaused=false;render();save();watchProvider();});
-window.addEventListener('pagehide',()=>{closeImagePreview();closeEngine();autoPaused=true;if(state.collection?.status==='running')pauseCollection(state.collection,'panel-closed');stopProviderWatch();save();if(autoTimer)clearTimeout(autoTimer);if(healthTimer)clearInterval(healthTimer);});
+window.addEventListener('pagehide',()=>{removeEngineConnection();closeImagePreview();closeEngine();autoPaused=true;if(state.collection?.status==='running')pauseCollection(state.collection,'panel-closed');stopProviderWatch();save();if(autoTimer)clearTimeout(autoTimer);if(healthTimer)clearInterval(healthTimer);});
 $('add-keyword').addEventListener('click',()=>{addKeyword($('manual-keyword').value);$('manual-keyword').value='';renderKeywords();save();});
 $('manual-keyword').addEventListener('keydown',event=>{if(event.key==='Enter')$('add-keyword').click();});
-$('cancel').addEventListener('click',()=>{cancelled=true;autoPaused=true;autoPending=false;pauseCurrentCollection();for(const controller of requestControllers)controller.abort();closeEngine();status('正在停止本次检索…');});
+$('cancel').addEventListener('click',()=>{cancelled=true;autoPaused=true;autoPending=false;waitingForService=false;$('service-help').hidden=true;pauseCurrentCollection();for(const controller of requestControllers)controller.abort();closeEngine();status('正在停止本次检索…');});
 $('settings').addEventListener('click',()=>chrome.runtime.openOptionsPage());
 $('result-sort').addEventListener('change',render);
 $('toggle-results').addEventListener('click',()=>{
@@ -980,7 +991,7 @@ for(const button of document.querySelectorAll('[data-result-tab]')){
 }
 $('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('本机助手已就绪，可以查找商品。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.4.0',recognitionRuntime:'native-local-v1',engineRevision:ENGINE_REVISION,generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||state.imageSearchDiagnostics?.submittedInput||null,imageSearchDiagnostics:state.imageSearchDiagnostics,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.4.1',recognitionRuntime:'native-local-v1',engineRevision:ENGINE_REVISION,generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||state.imageSearchDiagnostics?.submittedInput||null,imageSearchDiagnostics:state.imageSearchDiagnostics,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });

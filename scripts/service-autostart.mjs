@@ -12,7 +12,8 @@ try{
   const quote=value=>"'"+String(value).replaceAll("'","''")+"'";
   const root=path.resolve(projectRoot),launcher=path.join(root,'scripts','service-control.mjs');
   const command="$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); & "+quote(process.execPath)+' '+quote(launcher)+" start *> "+quote(path.join(root,'.cache','autostart.log'))+'; exit $LASTEXITCODE';
-  const args='-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand '+Buffer.from(command,'utf16le').toString('base64');
+  if(command.includes('"'))throw Error('Invalid startup command');
+  const args='-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command "'+command+'"';
   const script=`
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
@@ -50,6 +51,7 @@ if($taskExists){
   $taskShortcut=$taskShell.CreateShortcut($taskLink)
   $taskEnabled=($taskShortcut.Description -eq $taskDescription -and $taskShortcut.WorkingDirectory -eq $taskRoot -and $taskShortcut.TargetPath -eq $taskTarget -and $taskShortcut.Arguments -eq $taskArguments)
 }
+if($taskOperation -eq 'enable' -and -not $taskEnabled){throw 'Startup launcher verification failed; installation path may be too long'}
 @{enabled=$taskEnabled;shortcutPath=$taskLink;projectRoot=$taskRoot}|ConvertTo-Json -Compress
 `;
   const result=await promisify(execFile)('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command',script],{windowsHide:true,timeout:15000});
