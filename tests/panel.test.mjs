@@ -62,15 +62,11 @@ test('the side panel restores uploads, reads real-page adapter data and excludes
   assert.match(document.getElementById('pending-count').textContent,/1/);
   assert.equal(document.getElementById('exact-results').children.length,0);
   assert.ok(comparisonRequests>0);
-  assert.match(document.getElementById('pending-results').textContent,/无法自动确认/);
+  assert.match(document.getElementById('pending-results').textContent,/无法自动确认 · 不参与推荐/);
   assert.doesNotMatch(document.getElementById('pending-results').textContent,/我已核对/);
   assert.equal(document.getElementById('pending-results').children.length,1);
-  assert.match(document.getElementById('pending-results').textContent,/未列出/);
-  document.getElementById('pending-toggle').click();await settle();
-  assert.match(document.getElementById('pending-results').textContent,/已显示全部/);
-  assert.match(document.getElementById('pending-results').textContent,/无法自动确认 · 不参与推荐/);
-  document.getElementById('pending-toggle').click();await settle();
-  assert.match(document.getElementById('pending-results').textContent,/未列出/);
+  assert.equal(document.getElementById('pending-results').querySelectorAll('.product').length,1);
+  assert.equal(document.getElementById('pending-toggle'),null);
   assert.match(document.getElementById('status').textContent,/同款匹配 0 个/);
   assert.equal(document.getElementById('cancel').hidden,true);
 });
@@ -416,7 +412,7 @@ test('Top10 renders ranked product links and per-link evidence, updates without 
   providerFixture={...providerFixture,capturedAt:'2026-10-10T04:00:00Z'};document.getElementById('read-provider').click();await settle();assert.equal(comparisonRequests,beforeRequests);assert.equal(leaderSaved.productKeywords.length,1);
   let exportedBlob;const oldCreate=URL.createObjectURL,oldRevoke=URL.revokeObjectURL;
   URL.createObjectURL=blob=>{exportedBlob=blob;return 'blob:fixture';};URL.revokeObjectURL=()=>{};
-  try{document.getElementById('export').click();const data=JSON.parse(await exportedBlob.text());assert.equal(data.version,'0.4.4');assert.equal(data.keywordTopCount,10);assert.equal(data.keywords[0].products.length,10);assert.equal(data.products.length,13);assert.equal(data.keywords[0].products[0].keywordEvidence[0].query,'Late seller phrase');assert.equal(data.products.find(p=>p.id===products[11].id).keywordEvidence[0].capturedAt,'2026-10-10T03:00:00Z');assert.equal(data.imageSearchInput.imageUrl,imageUrl);assert.equal(data.imageSearchInput.title,'Top10 fixture reference');}finally{URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;}
+  try{document.getElementById('export').click();const data=JSON.parse(await exportedBlob.text());assert.equal(data.version,'0.4.5');assert.equal(data.keywordTopCount,10);assert.equal(data.keywords[0].products.length,10);assert.equal(data.products.length,13);assert.equal(data.keywords[0].products[0].keywordEvidence[0].query,'Late seller phrase');assert.equal(data.products.find(p=>p.id===products[11].id).keywordEvidence[0].capturedAt,'2026-10-10T03:00:00Z');assert.equal(data.imageSearchInput.imageUrl,imageUrl);assert.equal(data.imageSearchInput.title,'Top10 fixture reference');}finally{URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;}
   providerFixture={...providerFixture,products:providerFixture.products.map(p=>({...p,productKeywords:[]}))};document.getElementById('read-provider').click();await settle();assert.equal(comparisonRequests,beforeRequests);assert.doesNotMatch(document.querySelector('#keywords .seller-entry').textContent,/Late seller phrase/);
   providerFixture={...providerFixture,products:providerFixture.products.map((p,i)=>i===0?{...p,imageUrl:'https://img.kwcdn.com/top10-changed-product.jpg',title:'Changed original product title'}:p)};document.getElementById('read-provider').click();await settle();assert.ok(comparisonRequests>beforeRequests,'changed product images and titles must still be reviewed');assert.equal(lastSaved.items.find(p=>p.id===products[0].id).title,'Changed original product title');
   assert.equal(createdTabs.length,beforeTabs);

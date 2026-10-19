@@ -289,10 +289,7 @@ function renderResultsVisibility(){
   if(previewAnchor&&(!previewAnchor.isConnected||previewAnchor.closest('[hidden]')||previewAnchor.getAttribute('src')!==$('image-preview-image').getAttribute('src')))closeImagePreview();
 }
 
-const PENDING_PREVIEW=5,PENDING_REVIEW_FLOOR=.85;
-let pendingExpanded=false;
-// Display-only ranking for the unconfirmed bucket: candidates without any positive
-// image evidence are counted but not rendered, so the list stays human-reviewable.
+// Display-only ranking for the unconfirmed bucket; every candidate remains visible.
 function pendingScore(item){
   if(item.priorityError)return 2;
   if(item.autoAttempt!==state.matchRevision)return 1.5;
@@ -477,17 +474,9 @@ function render(){
     $('exact-results').replaceChildren(...ordered.map(item=>card(item,false)));
   }
   const rankedPending=[...pending].sort((a,b)=>pendingScore(b)-pendingScore(a));
-  if(!pending.length)pendingExpanded=false;
-  const shownPending=pendingExpanded?rankedPending:rankedPending.filter(item=>pendingScore(item)>=PENDING_REVIEW_FLOOR).slice(0,PENDING_PREVIEW);
-  $('pending-results').replaceChildren(...shownPending.map(item=>card(item)));
-  const hiddenPending=rankedPending.length-shownPending.length;
-  if(hiddenPending||pendingExpanded){
-    const note=node('p','hint',hiddenPending?'其余 '+hiddenPending+' 个无法自动确认的候选未列出（图像证据不足或差别较大）；导出 JSON 仍包含全部。':'已显示全部 '+pending.length+' 个无法自动确认的候选。');
-    const toggle=node('button','',pendingExpanded?'收起':'展开全部');toggle.type='button';toggle.id='pending-toggle';toggle.addEventListener('click',()=>{pendingExpanded=!pendingExpanded;render();});
-    note.append(' ',toggle);$('pending-results').append(note);
-  }
+  $('pending-results').replaceChildren(...rankedPending.map(item=>card(item)));
   $('excluded-results').replaceChildren(...different.map(item=>card(item)));
-  $('pending-count').textContent='自动处理 / 无法确认（显示 '+shownPending.length+' / 共 '+pending.length+'）';
+  $('pending-count').textContent='未确定商品（共 '+pending.length+'）';
   $('excluded-count').textContent='非同款商品（'+different.length+'）';
   $('same-total').textContent=exact.length;$('pending-total').textContent=pending.length;$('different-total').textContent=different.length;
   $('result-total').textContent='已读取 '+state.items.length+' 条';
@@ -1021,7 +1010,7 @@ for(const button of document.querySelectorAll('[data-result-tab]')){
 }
 $('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('本机助手已就绪，可以查找商品。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.4.4',recognitionRuntime:'native-local-v1',engineRevision:ENGINE_REVISION,generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||state.imageSearchDiagnostics?.submittedInput||null,imageSearchDiagnostics:state.imageSearchDiagnostics,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.4.5',recognitionRuntime:'native-local-v1',engineRevision:ENGINE_REVISION,generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||state.imageSearchDiagnostics?.submittedInput||null,imageSearchDiagnostics:state.imageSearchDiagnostics,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });

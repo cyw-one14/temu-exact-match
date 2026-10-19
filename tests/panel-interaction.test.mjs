@@ -42,7 +42,7 @@ test('subject review overlaps at most three requests, preserves response identit
   }});
   try{
     await until(()=>ui.requests.length===3);assert.equal(active,3);await delay();assert.equal(ui.requests.length,3);
-    ui.get('pending-toggle').click();action(ui,'pending-results',ui.requests[0].candidateId,'different').click();await until(()=>ui.saved?.items.some(item=>item.manualClassification));
+    action(ui,'pending-results',ui.requests[0].candidateId,'different').click();await until(()=>ui.saved?.items.some(item=>item.manualClassification));
     held.get(ui.requests[2].candidateId)();await until(()=>ui.requests.length===4);
     held.get(ui.requests[1].candidateId)();held.get(ui.requests[0].candidateId)();await until(()=>ui.requests.length===6);
     for(const body of ui.requests.slice(3))held.get(body.candidateId)();
@@ -98,7 +98,6 @@ test('each card exposes only its own sales and original keywords beside its imag
   Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{writeText:async value=>{copied=value;}}}});
   const ui=await mount(savedState([first,otherSource,pending,different,empty]));
   try{
-    ui.get('pending-toggle').click();
     for(const [index,item]of [first,otherSource,pending,different].entries()){
       const card=ui.document.querySelector(`.product[data-product-id="${item.id}"][data-source="${item.salesSource}"]`);
       const block=card.querySelector('.product-top .product-keywords');assert.ok(block);
@@ -155,9 +154,8 @@ test('manual moves update only the selected source, rankings and export, survive
   assert.equal(ui.get('exact-results').children.length,0);assert.equal(ui.get('excluded-results').children.length,0);ui.close();
 });
 
-test('uncertain hidden candidates can be classified and restored, and storage failures remain visible',async()=>{
+test('uncertain candidates are visible immediately and can be classified and restored, and storage failures remain visible',async()=>{
   const ui=await mount(savedState([makeItem('601123456789003','pending')]),{storageFails:true});
-  ui.get('pending-toggle').click();
   action(ui,'pending-results','601123456789003','same').click();
   await until(()=>ui.get('status').textContent.includes('存储空间不足'));
   assert.equal(ui.get('exact-results').children.length,1);assert.match(ui.get('status').textContent,/存储空间不足/);
@@ -187,7 +185,7 @@ test('subject progress counts completed responses, keeps in-flight user correcti
   })});
   await until(()=>deferred.length===2);
   assert.equal(ui.get('progress-title').textContent,'正在核对商品主体');assert.equal(ui.get('progress-bar').getAttribute('aria-valuenow'),'0');assert.match(ui.get('progress-count').textContent,/0 \/ 2/);
-  ui.get('pending-toggle').click();action(ui,'pending-results',pending[0].id,'same').click();
+  action(ui,'pending-results',pending[0].id,'same').click();
   assert.equal(ui.get('progress-percent').textContent,'50%');
   deferred[0].resolve({status:'different',evidence:['TEST automatic difference']});await until(()=>ui.saved?.items[0].subjectAttempt===1);
   assert.equal(ui.saved.items[0].status,'different');assert.equal(ui.saved.items[0].manualClassification.decision,'same');assert.equal(ui.get('exact-results').children.length,1);
@@ -312,17 +310,17 @@ test('storage updates from another panel refresh classifications, reject older r
 });
 
 test('simple result tabs keep one category visible, retain full details and support keyboard navigation and corrections',async()=>{
-  const items=[makeItem('601123456789021'),makeItem('601123456789022','different'),makeItem('601123456789023','pending')];
+  const items=[makeItem('601123456789021'),makeItem('601123456789022','different'),...Array.from({length:7},(_,i)=>makeItem(String(601123456789023+i),'pending'))];
   const ui=await mount(savedState(items));
   assert.equal(ui.get('welcome').hidden,true);assert.equal(ui.get('more-tools').hasAttribute('open'),false);assert.equal(ui.get('keyword-section').hasAttribute('open'),false);
   assert.equal(ui.get('matches-section').hidden,false);assert.equal(ui.get('excluded-section').hidden,true);assert.equal(ui.get('pending-section').hidden,true);
-  assert.equal(ui.get('same-total').textContent,'1');assert.equal(ui.get('different-total').textContent,'1');assert.equal(ui.get('pending-total').textContent,'1');
+  assert.equal(ui.get('same-total').textContent,'1');assert.equal(ui.get('different-total').textContent,'1');assert.equal(ui.get('pending-total').textContent,'7');
   const card=ui.get('exact-results').querySelector('.product');assert.equal(card.querySelector('.product-more').hasAttribute('open'),false);assert.match(card.querySelector('.full-title').textContent,new RegExp(items[0].title));assert.ok(card.querySelector('.product-more .evidence-list'));assert.ok(card.querySelector('.product-actions [data-action="different"]'));
   ui.get('tab-different').click();assert.equal(ui.get('matches-section').hidden,true);assert.equal(ui.get('excluded-section').hidden,false);assert.equal(ui.get('excluded-section').open,true);
   action(ui,'excluded-results',items[1].id,'same').click();await until(()=>ui.saved?.items[1].manualClassification?.persistent);assert.equal(ui.get('same-total').textContent,'2');assert.equal(ui.get('different-total').textContent,'0');assert.equal(ui.get('excluded-empty').hidden,false);
   const key=new ui.window.Event('keydown',{cancelable:true});Object.defineProperty(key,'key',{value:'Home'});ui.get('tab-different').dispatchEvent(key);
   assert.equal(ui.get('tab-same').getAttribute('aria-selected'),'true');assert.equal(ui.get('matches-section').hidden,false);
-  ui.get('tab-pending').click();assert.equal(ui.get('pending-section').hidden,false);assert.equal(ui.get('pending-section').open,true);assert.equal(ui.get('matches-section').hidden,true);assert.ok(ui.get('pending-toggle'));ui.close();
+  ui.get('tab-pending').click();assert.equal(ui.get('pending-section').hidden,false);assert.equal(ui.get('pending-section').open,true);assert.equal(ui.get('matches-section').hidden,true);assert.equal(ui.get('pending-results').querySelectorAll('.product').length,7);assert.equal(ui.get('pending-toggle'),null);ui.get('result-sort').dispatchEvent(new ui.window.Event('change'));assert.equal(ui.get('pending-results').querySelectorAll('.product').length,7);ui.close();
 });
 
 test('price directions reorder captured amounts within their currency or printed symbol, keep missing prices last and retain details',async()=>{
