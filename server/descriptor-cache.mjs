@@ -1,9 +1,10 @@
 import {readFile,writeFile,mkdir,rename,readdir,stat,unlink} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {join} from 'node:path';
+import {NATIVE_REVISION,nativeDevice} from './native-runtime.mjs';
 
 // Separate revision directory prevents reuse after any model/preprocessing change.
-const root=fileURLToPath(new URL('../.cache/subjects-biref-de15b22-dino-c2bb04-1024-224-v1/',import.meta.url));
+const root=process.env.TEMU_SUBJECT_CACHE_DIR||fileURLToPath(new URL('../.cache/subjects-'+NATIVE_REVISION+'-'+nativeDevice+'/',import.meta.url));
 const TTL=30*86400000;
 let writes=0;
 function valid(value){

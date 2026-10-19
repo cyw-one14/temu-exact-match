@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TEMU 完全同款助手",
-  "version": "0.3.8",
+  "version": "0.4.0",
   "description": "自动提取商品主体并比对同款，读取 TEMU 美国站真实价格与原始标题，同时提供销量及来源关键词。",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -14,7 +14,8 @@
     "https://www.temu.com/*",
     "https://www.temaishuju.com/*",
     "https://*.kwcdn.com/*",
-    "https://*.temu.com/*"
+    "https://*.temu.com/*",
+    "http://127.0.0.1:43187/*"
   ],
   "content_scripts": [
     {
@@ -45,7 +46,7 @@
     "128": "icon-128.png"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'self'; worker-src 'self'; connect-src 'self' https://*.kwcdn.com https://*.temu.com; img-src 'self' data: https:;"
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'self'; worker-src 'self'; connect-src 'self' http://127.0.0.1:43187 https://*.kwcdn.com https://*.temu.com; img-src 'self' data: https:;"
   },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkB+DHxm+rF2I5tr7Fu3xh2ysfWF0IBnp8AY4KMcFRspDV2I7AV9mzIehcBSShh0rq8xxtHIqHRG0XJmXhw4Pwc/qvPZlo7AooGTCmy1sJx7xbEP6yJkv5DMPa2LWWwX9y9Rtt4u282UlH+YzDiDbClNpS5ocA13iWx+R8QiYkFQu404vdWELJdBDKXQrK9r4TKVoPuqQv/571olWrbbpkfSKIc3VG9YvxYJ+mrUIuRnMttfVFttEGnm2JVzmMm02GINPwkccSfTwL1Hecfp80HlGJx1pcdUc4PYi3O6CxW66Fo+GQDIIevZLfY3UCgQsfYRMR/HVw9etEs9PqK+aVQIDAQAB"
 }

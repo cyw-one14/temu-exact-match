@@ -1,5 +1,3 @@
-import {installEngineWorkerFixture} from './engine-worker-fixture.mjs';
-installEngineWorkerFixture();
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -26,7 +24,8 @@ const specText='Brand: Acme; Model: A12; Material: silicone; Capacity: 500ml; Qu
 globalThis.chrome={windows:{getCurrent:async()=>({id:1})},storage:{onChanged:{addListener:fn=>storageListeners.push(fn)},session:{get:async()=>({temuMatch:saved}),set:async value=>{lastSaved=value['temuMatch:1'];}},local:{get:async()=>({preferences:{maxCandidates:batchSize}}),set:async()=>{}}},tabs:{create:async options=>{createdTabs.push(options);return{id:3};},query:async()=>[{id:1}],get:async()=>({status:'complete'}),remove:async()=>{},update:async(tabId,options)=>{tabUpdates.push({tabId,...options});}},runtime:{sendMessage:async message=>({ok:true,data:message.type==='collect-provider'?providerFixture:referenceFixture||fixture}),openOptionsPage:async()=>{}}};
 globalThis.fetch=async(url,options)=>{
   let json;
-  if(url.endsWith('/health'))json={engine:'local',configured:true,model:{state:'ready',message:'本地识别已就绪',progress:100}};
+  if(url.endsWith('/prefetch'))return {ok:true,json:async()=>({ok:true})};
+    if(url.endsWith('/health'))json={engine:'local',engineRevision:'native-512-fp32-v1',configured:true,model:{state:'ready',message:'本地识别已就绪',progress:100}};
   else if(url.endsWith('/image'))json={ok:true,dataUrl:image};
   else if(url.endsWith('/compare')){
     comparisonRequests++;
@@ -417,7 +416,7 @@ test('Top10 renders ranked product links and per-link evidence, updates without 
   providerFixture={...providerFixture,capturedAt:'2026-10-10T04:00:00Z'};document.getElementById('read-provider').click();await settle();assert.equal(comparisonRequests,beforeRequests);assert.equal(leaderSaved.productKeywords.length,1);
   let exportedBlob;const oldCreate=URL.createObjectURL,oldRevoke=URL.revokeObjectURL;
   URL.createObjectURL=blob=>{exportedBlob=blob;return 'blob:fixture';};URL.revokeObjectURL=()=>{};
-  try{document.getElementById('export').click();const data=JSON.parse(await exportedBlob.text());assert.equal(data.version,'0.3.8');assert.equal(data.keywordTopCount,10);assert.equal(data.keywords[0].products.length,10);assert.equal(data.products.length,13);assert.equal(data.keywords[0].products[0].keywordEvidence[0].query,'Late seller phrase');assert.equal(data.products.find(p=>p.id===products[11].id).keywordEvidence[0].capturedAt,'2026-10-10T03:00:00Z');assert.equal(data.imageSearchInput.imageUrl,imageUrl);assert.equal(data.imageSearchInput.title,'Top10 fixture reference');}finally{URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;}
+  try{document.getElementById('export').click();const data=JSON.parse(await exportedBlob.text());assert.equal(data.version,'0.4.0');assert.equal(data.keywordTopCount,10);assert.equal(data.keywords[0].products.length,10);assert.equal(data.products.length,13);assert.equal(data.keywords[0].products[0].keywordEvidence[0].query,'Late seller phrase');assert.equal(data.products.find(p=>p.id===products[11].id).keywordEvidence[0].capturedAt,'2026-10-10T03:00:00Z');assert.equal(data.imageSearchInput.imageUrl,imageUrl);assert.equal(data.imageSearchInput.title,'Top10 fixture reference');}finally{URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;}
   providerFixture={...providerFixture,products:providerFixture.products.map(p=>({...p,productKeywords:[]}))};document.getElementById('read-provider').click();await settle();assert.equal(comparisonRequests,beforeRequests);assert.doesNotMatch(document.querySelector('#keywords .seller-entry').textContent,/Late seller phrase/);
   providerFixture={...providerFixture,products:providerFixture.products.map((p,i)=>i===0?{...p,imageUrl:'https://img.kwcdn.com/top10-changed-product.jpg',title:'Changed original product title'}:p)};document.getElementById('read-provider').click();await settle();assert.ok(comparisonRequests>beforeRequests,'changed product images and titles must still be reviewed');assert.equal(lastSaved.items.find(p=>p.id===products[0].id).title,'Changed original product title');
   assert.equal(createdTabs.length,beforeTabs);

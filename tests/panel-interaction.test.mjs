@@ -1,5 +1,3 @@
-import {installEngineWorkerFixture} from './engine-worker-fixture.mjs';
-installEngineWorkerFixture();
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -11,28 +9,42 @@ import {ManualMemoryStore,memoryStorageKey,referenceMemoryKey,candidateMemoryKey
 const html=await readFile(new URL('../extension/panel.html',import.meta.url),'utf8');
 const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
 const makeItem=(id,status='visual-match',source='provider-visible')=>({id,title:'TEST original listing '+id,url:'https://www.temu.com/goods.html?goods_id='+id,imageUrl:'https://img.kwcdn.com/test-'+id+'.jpg',salesSource:source,status,autoAttempt:1,subjectAttempt:1,priceText:'$5.99',sales:parseSales('100 sold'),market:'us',capturedAt:'2026-10-16T00:00:00Z',evidence:['TEST retained automatic evidence']});
-const savedState=items=>({referenceImage:image,referenceSpecs:{},profile:{name:'TEST reference'},referenceContext:{collectionRevision:'declared-product-v1',title:'TEST reference'},matchingPolicy:'title-groups-outline-v16',keywordPolicy:'best-sellers-v1',matchRevision:1,items,pages:[],keywords:[],selectedQueries:[],collectionHistory:[]});
+const savedState=items=>({referenceImage:image,referenceSpecs:{},profile:{name:'TEST reference'},referenceContext:{collectionRevision:'declared-product-v1',title:'TEST reference'},matchingPolicy:'title-groups-outline-v16',engineRevision:'native-512-fp32-v1',keywordPolicy:'best-sellers-v1',matchRevision:1,items,pages:[],keywords:[],selectedQueries:[],collectionHistory:[]});
 const delay=()=>new Promise(resolve=>setTimeout(resolve,5));
 async function until(check){for(let i=0;i<400;i++){if(check())return;await delay();}assert.fail('UI did not reach expected state');}
 let mountCount=0;
 async function mount(saved,{compare,selection=null,provider=null,storageFails=false,localData={},memoryFails=false}={}){
   const {document,window}=parseHTML(html);globalThis.document=document;globalThis.window=window;
-  let lastSaved=null;const requests=[],messages=[];
+  let lastSaved=null,healthRequests=0;const requests=[],messages=[];
   const changeListeners=[];
   const local={get:async key=>({[key]:structuredClone(localData[key]),preferences:{onImageClick:'local'}}),set:async data=>{if(memoryFails)throw Error('TEST local quota');Object.assign(localData,structuredClone(data));for(const listener of changeListeners)listener(Object.fromEntries(Object.entries(data).map(([key,newValue])=>[key,{newValue:structuredClone(newValue)}])),'local');}};
   const memory=new ManualMemoryStore(local);
   globalThis.chrome={windows:{getCurrent:async()=>({id:1})},storage:{session:{get:async()=>({'temuMatch:1':structuredClone(saved),'temuSelection:1':selection}),set:async data=>{if(storageFails)throw Error('TEST quota');lastSaved=structuredClone(data['temuMatch:1']);}},local,onChanged:{addListener:fn=>changeListeners.push(fn)}},tabs:{create:()=>{throw Error('No navigation during UI adjustments');}},runtime:{sendMessage:async message=>{messages.push(message);if(message.type==='manual-memory-update'){try{return {ok:true,record:await memory.update(message)};}catch(error){return {ok:false,error:error.message};}}return {ok:true,data:provider};}}};
   globalThis.fetch=async(url,options)=>{
-    if(url.endsWith('/health'))return {ok:true,json:async()=>({engine:'local',model:{state:'ready',progress:100,message:'TEST ready'}})};
+    if(url.endsWith('/prefetch'))return {ok:true,json:async()=>({ok:true})};
+    if(url.endsWith('/health')){healthRequests++;return {ok:true,json:async()=>({engine:'local',engineRevision:'native-512-fp32-v1',model:{state:'ready',progress:100,message:'TEST ready'}})};}
     const body=JSON.parse(options.body);requests.push(body);
     const comparison=await compare?.(body,options.signal);
     return {ok:true,json:async()=>({ok:true,comparison:comparison||{status:'pending'}})};
   };
   await import('../extension/panel.js?interaction='+(++mountCount));
-  return {document,window,requests,messages,localData,changeListeners,get saved(){return lastSaved;},get:(id)=>document.getElementById(id),close(){window.dispatchEvent(new window.Event('pagehide'));}};
+  return {document,window,requests,messages,localData,changeListeners,get healthRequests(){return healthRequests;},get saved(){return lastSaved;},get:(id)=>document.getElementById(id),close(){window.dispatchEvent(new window.Event('pagehide'));}};
 }
 const action=(ui,section,id,decision,source='provider-visible')=>ui.get(section).querySelector(`[data-product-id="${id}"][data-source="${source}"] [data-action="${decision}"]`);
 async function exportData(ui){let blob;const original=URL.createObjectURL;URL.createObjectURL=value=>{blob=value;return 'blob:test';};try{ui.get('export').click();return JSON.parse(await blob.text());}finally{URL.createObjectURL=original;}}
+
+test('moving from browser to native clears automatic evidence but keeps remembered user classifications',async()=>{
+  const manual={...makeItem('601123456789091','different'),manualClassification:{source:'user',decision:'same',updatedAt:'2026-10-16T01:00:00Z'}};
+  const automatic=makeItem('601123456789092','different');
+  const ui=await mount({...savedState([manual,automatic]),engineRevision:'browser-wasm-old'},{compare:async body=>({status:body.phase==='subject-review'?'pending':'visual-match',evidence:['TEST new native evidence'],samePhoto:true})});
+  try{
+    await until(()=>ui.saved?.items[1].status==='visual-match');
+    assert.equal(ui.saved.engineRevision,'native-512-fp32-v1');
+    assert.equal(ui.saved.items[0].manualClassification.decision,'same');
+    assert.equal(ui.saved.items[0].evidence.includes('TEST retained automatic evidence'),false);
+    assert.equal(ui.get('same-total').textContent,'2');
+  }finally{ui.close();}
+});
 
 test('each card exposes only its own sales and original keywords beside its image, while recommendations still require a match',async()=>{
   const first=makeItem('601123456789081'),otherSource=makeItem(first.id,'visual-match','temu-visible');
@@ -164,24 +176,23 @@ test('a new selection during an awaited diagnostic save cannot receive the previ
   }finally{release?.();ui?.close();globalThis.setInterval=originalInterval;}
 });
 
-test('stopping inference keeps periodic health checks from recreating its Worker until the user resumes',async()=>{
-  const originalInterval=globalThis.setInterval,OriginalWorker=globalThis.Worker;let tickHealth,created=0,ui;
+test('pausing cancels the native request and health polling does not resume work until the user continues',async()=>{
+  const originalInterval=globalThis.setInterval;let tickHealth,ui;
   globalThis.setInterval=(callback,ms,...args)=>{if(ms===5000)tickHealth=callback;return originalInterval(callback,ms,...args);};
-  globalThis.Worker=class extends OriginalWorker{constructor(){super();created++;}};
   try{
     const item=makeItem('601123456789098','pending');delete item.subjectAttempt;
     ui=await mount(savedState([item]),{compare:(body,signal)=>new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('Stopped','AbortError')),{once:true}))});
     await until(()=>ui.requests.length>0);ui.get('cancel').click();await until(()=>ui.get('cancel').hidden);
-    const before=created;assert.equal(typeof tickHealth,'function');await tickHealth();assert.equal(created,before);assert.match(ui.get('service-status').textContent,/识别已暂停/);
-    ui.get('resume-analysis').click();await until(()=>created>before&&ui.requests.length>1);assert.equal(ui.get('cancel').hidden,false);
-  }finally{ui?.close();globalThis.setInterval=originalInterval;globalThis.Worker=OriginalWorker;}
+    const before=ui.healthRequests;assert.equal(typeof tickHealth,'function');await tickHealth();assert.equal(ui.healthRequests,before);assert.match(ui.get('service-status').textContent,/识别已暂停/);
+    ui.get('resume-analysis').click();await until(()=>ui.requests.length>1);assert.equal(ui.get('cancel').hidden,false);
+  }finally{ui?.close();globalThis.setInterval=originalInterval;}
 });
 
 test('a failed connection has a visible progress error and preserves the unconfirmed result',async()=>{
   const item=makeItem('601123456789007','pending');delete item.subjectAttempt;
   const ui=await mount(savedState([item]),{compare:()=>{throw new TypeError('TEST connection failure');}});
   await until(()=>ui.get('progress-title').textContent==='处理遇到问题');
-  assert.match(ui.get('progress-detail').textContent,/浏览器识别初始化失败/);
+  assert.match(ui.get('progress-detail').textContent,/本机识别初始化失败/);
   assert.equal(ui.get('analysis-progress').dataset.phase,'error');assert.equal(ui.get('exact-results').children.length,0);assert.equal(ui.saved.items[0].status,'pending');ui.close();
 });
 

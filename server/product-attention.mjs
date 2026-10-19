@@ -1,5 +1,6 @@
 import sharp from 'sharp';
 import {fileURLToPath} from 'node:url';
+import {configureNative,sessionOptions} from './native-runtime.mjs';
 
 export const ATTENTION_REVISION='semantic-color-v1';
 export const ATTENTION_MODEL={id:'Xenova/clipseg-rd64-refined',revision:'924dc94f85f58739f353f94258b33bc47eae4862'};
@@ -10,11 +11,12 @@ export function prepareAttention(){
   attentionState.state='loading';attentionState.message='正在加载人体与商品区域关注模型';
   loading=(async()=>{
     const lib=await import('@huggingface/transformers');
+    configureNative(lib);
     lib.env.cacheDir=fileURLToPath(new URL('../.cache/models/',import.meta.url));
     const options={revision:ATTENTION_MODEL.revision};
     const tokenizer=await lib.AutoTokenizer.from_pretrained(ATTENTION_MODEL.id,options);
     const processor=await lib.AutoProcessor.from_pretrained(ATTENTION_MODEL.id,options);
-    const model=await lib.CLIPSegForImageSegmentation.from_pretrained(ATTENTION_MODEL.id,{...options,dtype:'q8',device:'cpu',session_options:{intraOpNumThreads:4}});
+    const model=await lib.CLIPSegForImageSegmentation.from_pretrained(ATTENTION_MODEL.id,{...options,dtype:'q8',device:'cpu',session_options:sessionOptions});
     attentionState.state='ready';attentionState.message='人体识别与商品颜色关注已就绪';
     return {tokenizer,processor,model,RawImage:lib.RawImage};
   })().catch(error=>{loading=null;attentionState.state='unavailable';attentionState.message='区域关注不可用，保留原主体复核';throw error;});

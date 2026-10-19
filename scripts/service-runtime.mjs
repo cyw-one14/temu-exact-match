@@ -12,7 +12,7 @@ export const projectRoot=fileURLToPath(new URL('../',import.meta.url));
 const recordPath=path.join(projectRoot,'.local-runtime.json');
 const serverPath=path.join(projectRoot,'server','index.mjs');
 const cachePath=path.join(projectRoot,'.cache');
-const port=43187;
+const port=Number(process.env.TEMU_MATCH_PORT||43187);
 const normalized=value=>path.resolve(String(value)).toLowerCase();
 
 export function requireNodeVersion(version=process.versions.node){
@@ -59,7 +59,8 @@ async function stopOwned(record){
   const info=await processInfo(record.processId);
   if(!info){await unlink(recordPath).catch(error=>{if(error.code!=='ENOENT')throw error;});return false;}
   if(!isOwnedProcess(record,info))throw new Error('记录中的进程不属于本项目，未停止任何进程');
-  process.kill(record.processId);
+  // Updating the owned Node server must also release its Python child.
+  await execute('taskkill.exe',['/PID',String(record.processId),'/T','/F'],{windowsHide:true,timeout:10000});
   for(let attempt=0;attempt<30;attempt++){
     try{process.kill(record.processId,0);}catch(error){if(error.code==='ESRCH')break;throw error;}
     await delay(100);
@@ -91,7 +92,8 @@ export async function startService({showSetup=false}={}){
   requireNodeVersion();
   const manifest=JSON.parse(await readFile(path.join(projectRoot,'extension','manifest.json'),'utf8'));
   if(!manifest.key){await execute(process.execPath,[path.join(projectRoot,'scripts','init-key.mjs')],{windowsHide:true});manifest.key=JSON.parse(await readFile(path.join(projectRoot,'extension','manifest.json'),'utf8')).key;}
-  const id=extensionId(manifest.key),ready=health=>health?.ok&&health.version===manifest.version&&health.extensionId===id;
+  const id=extensionId(manifest.key),installationId=createHash('sha256').update(projectRoot.toLowerCase()).digest('hex').slice(0,20);
+  const ready=health=>health?.ok&&health.version===manifest.version&&health.extensionId===id&&health.installationId===installationId;
   let health=await readHealth();
   if(ready(health)){console.log('TEMU 识别服务已在运行：http://127.0.0.1:43187/setup');if(showSetup)await openSetup();return health;}
   await mkdir(cachePath,{recursive:true});

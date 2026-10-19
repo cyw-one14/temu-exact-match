@@ -1,5 +1,3 @@
-import {installEngineWorkerFixture} from './engine-worker-fixture.mjs';
-installEngineWorkerFixture();
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -10,7 +8,8 @@ const saved={referenceImage:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAA
 let lastSaved;const phases=[];
 globalThis.chrome={windows:{getCurrent:async()=>({id:1})},storage:{session:{get:async()=>({'temuMatch:1':saved}),set:async value=>{lastSaved=value['temuMatch:1'];}},local:{get:async()=>({})},onChanged:{addListener:()=>{}}},tabs:{create:()=>{throw Error('No new page during review');}},runtime:{}};
 globalThis.fetch=async(url,options)=>{
-  if(url.endsWith('/health'))return {ok:true,json:async()=>({engine:'local',model:{state:'ready',message:'TEST',progress:100}})};
+  if(url.endsWith('/prefetch'))return {ok:true,json:async()=>({ok:true})};
+    if(url.endsWith('/health'))return {ok:true,json:async()=>({engine:'local',engineRevision:'native-512-fp32-v1',model:{state:'ready',message:'TEST',progress:100}})};
   assert.ok(url.endsWith('/compare'));const body=JSON.parse(options.body);phases.push(body.phase);
   return {ok:true,json:async()=>({ok:true,comparison:body.phase==='subject-review'?{status:'outline-match',outlineMatch:{revision:'subject-outline-v1',valid:true,matched:true,iou:.96,boundaryCoverage:.97,priorStatus:'pending'},matchStage:'subject-review'}:{status:'pending',samePhoto:false,imageSimilarity:.2}})};
 };

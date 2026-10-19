@@ -10,8 +10,10 @@ import {isProductMatch,listingSpecs} from '../shared/core.mjs';
 import {titleMatchEvidence} from '../shared/title-match.mjs';
 import {groupedProductReview} from './match-flow.mjs';
 import {compareForegroundOutlines} from './outline-match.mjs';
-import {attentionState} from './product-attention.mjs';
+import {attentionState,prepareAttention} from './product-attention.mjs';
 import {recordSubjectResult} from './match-diagnostics.mjs';
+import {NATIVE_REVISION,nativeDevice,nativeThreads} from './native-runtime.mjs';
+import {PhotoCache} from '../browser/photo-cache.mjs';
 
 export const PORT=Number(process.env.TEMU_MATCH_PORT || 43187);
 const ROOT=new URL('../',import.meta.url);
@@ -19,11 +21,20 @@ const configURL=new URL('.local-config.json',ROOT);
 const manifest=JSON.parse(await readFile(new URL('extension/manifest.json',ROOT),'utf8'));
 if(!manifest.key) throw new Error('请先运行 node scripts/init-key.mjs');
 export const extensionId=[...createHash('sha256').update(Buffer.from(manifest.key,'base64')).digest().subarray(0,16)].map(n=>String.fromCharCode(97+(n>>4),97+(n&15))).join('');
+const installationId=createHash('sha256').update(fileURLToPath(ROOT).toLowerCase()).digest('hex').slice(0,20);
 const extensionOrigin='chrome-extension://'+extensionId;
 const localOrigin='http://127.0.0.1:'+PORT;
 let config={engine:'local',baseUrl:'https://api.openai.com/v1',model:'gpt-4.1-mini',apiKey:''};
 try{Object.assign(config,JSON.parse(await readFile(configURL,'utf8')));}catch{}
+config.engine='local';
 const imageCache=new Map();
+const photos=new PhotoCache(comparePixels),references=new Map();
+function referenceBuffer(data){if(!references.has(data)){references.set(data,imageBuffer(data));if(references.size>2)references.delete(references.keys().next().value);}return references.get(data);}
+const digest=buffer=>createHash('sha256').update(buffer).digest('hex');
+let preparing;
+export function prepareNative(){return preparing??=(async()=>{try{await Promise.all([prepareSubjects(),prepareFastFeatures(),prepareAttention()]);}catch(error){preparing=null;throw error;}})();}
+let activeDownloads=0;const waitingDownloads=[];
+async function downloadSlot(task){if(activeDownloads>=3)await new Promise(resolve=>waitingDownloads.push(resolve));else activeDownloads++;try{return await task();}finally{const next=waitingDownloads.shift();if(next)next();else activeDownloads--;}}
 
 async function getJSON(req){
   if(!String(req.headers['content-type']||'').startsWith('application/json')) throw Object.assign(new Error('需要 application/json 请求'),{status:415});
@@ -39,7 +50,12 @@ export function allowedImageUrl(raw){
 }
 
 async function downloadImage(raw){
-  if(imageCache.has(raw))return imageCache.get(raw);
+  if(imageCache.has(raw)){const task=imageCache.get(raw);imageCache.delete(raw);imageCache.set(raw,task);return task;}
+  const task=downloadSlot(()=>readImage(raw));imageCache.set(raw,task);
+  if(imageCache.size>64)imageCache.delete(imageCache.keys().next().value);
+  task.catch(()=>{if(imageCache.get(raw)===task)imageCache.delete(raw);});return task;
+}
+async function readImage(raw){
   let url=allowedImageUrl(raw);let response;
   for(let i=0;i<4;i++){
     response=await fetch(url,{redirect:'manual',signal:AbortSignal.timeout(25_000)});
@@ -50,8 +66,6 @@ async function downloadImage(raw){
   const chunks=[];let size=0;
   for await(const chunk of response.body){size+=chunk.length;if(size>MAX_IMAGE_BYTES)throw new Error('商品图片超过 8 MB');chunks.push(chunk);}
   const value=await normalizeImage(Buffer.concat(chunks));
-  if(imageCache.size>=48)imageCache.delete(imageCache.keys().next().value);
-  imageCache.set(raw,value);
   return value;
 }
 
@@ -62,6 +76,8 @@ const staticFiles={
 };
 
 export const server=http.createServer(async(req,res)=>{
+  const cancellation=new AbortController(),signal=cancellation.signal;
+  res.on('close',()=>{if(!res.writableEnded)cancellation.abort();});
   try{
     if(req.headers.host!=='127.0.0.1:'+PORT && req.headers.host!=='localhost:'+PORT)throw Object.assign(new Error('Host 不匹配'),{status:403});
     const origin=req.headers.origin;
@@ -80,19 +96,20 @@ export const server=http.createServer(async(req,res)=>{
     }
     res.setHeader('Content-Type','application/json; charset=utf-8');
     if(req.method==='GET' && path==='/health'){
-      res.end(JSON.stringify({ok:true,version:manifest.version,matchingPolicy:'title-groups-outline-v16',engine:config.engine,configured:config.engine==='local'||Boolean(config.apiKey),model:subjectState,productAttention:attentionState,fastFeatures:fastFeatureState,diagnosticModel:modelState,extensionId}));return;
+      const model={...subjectState};if(model.state==='ready'&&(fastFeatureState.state!=='ready'||attentionState.state!=='ready')){model.state=fastFeatureState.state==='unavailable'||attentionState.state==='unavailable'?'error':'loading';model.message='正在准备本机细节与人体关注核验';}
+      res.end(JSON.stringify({ok:true,version:manifest.version,runtime:'native-local-v1',engineRevision:NATIVE_REVISION,installationId,acceleration:{device:nativeDevice,threads:nativeThreads,segmentation:'BiRefNet-lite512 fp32'},matchingPolicy:'title-groups-outline-v16',engine:'local',configured:true,model,productAttention:attentionState,fastFeatures:fastFeatureState,diagnosticModel:modelState,extensionId}));return;
     }
     if((!accepted&&!sameOriginRead) || req.headers['x-temu-client']!=='exact-match')throw Object.assign(new Error('请从插件或本机设置页面访问'),{status:403});
     if(req.method==='GET' && path==='/config'){
-      res.end(JSON.stringify({engine:config.engine,baseUrl:config.baseUrl,model:config.model,hasKey:Boolean(config.apiKey)}));return;
+      res.end(JSON.stringify({engine:'local',extensionPath:fileURLToPath(new URL('extension/',ROOT)),version:manifest.version}));return;
     }
     if(req.method!=='POST')throw Object.assign(new Error('接口不存在'),{status:404});
     const body=await getJSON(req);
     if(path==='/prepare'){
-      prepareSubjects().catch(()=>{});res.writeHead(202);res.end(JSON.stringify({ok:true,model:subjectState}));return;
+      await prepareNative();res.end(JSON.stringify({ok:true,model:subjectState}));return;
     }
     if(path==='/config'){
-      if(!['local','cloud'].includes(body.engine))throw new Error('识别模式无效');
+      if(body.engine!=='local')throw new Error('此版本仅在本机核对，不使用云端识别');
       const base=new URL(body.baseUrl||config.baseUrl);
       if(base.protocol!=='https:' && !(base.protocol==='http:'&&['127.0.0.1','localhost'].includes(base.hostname)))throw new Error('API 地址必须为 HTTPS 或本机地址');
       if(base.username||base.password||base.search||base.hash)throw new Error('API 地址格式无效');
@@ -103,6 +120,10 @@ export const server=http.createServer(async(req,res)=>{
       res.end(JSON.stringify({ok:true,engine:config.engine,hasKey:Boolean(config.apiKey)}));return;
     }
     const specs=body.referenceSpecs||{};
+    if(path==='/prefetch'){
+      for(const url of [...new Set(Array.isArray(body.images)?body.images:[])].filter(url=>typeof url==='string').slice(0,3))downloadImage(url).catch(()=>{});
+      res.end(JSON.stringify({ok:true}));return;
+    }
     if(path==='/image'){
       const image=await downloadImage(body.imageUrl);res.end(JSON.stringify({ok:true,dataUrl:image.dataUrl,sourceFormat:image.sourceFormat}));return;
     }
@@ -112,11 +133,12 @@ export const server=http.createServer(async(req,res)=>{
       res.end(JSON.stringify({ok:true,profile:result}));return;
     }
     if(path==='/compare'){
-      const reference=imageBuffer(body.referenceImage);
+      const reference=referenceBuffer(body.referenceImage);
       const candidate=await downloadImage(body.imageUrl);
-      const imageOptions={sameAsset:sameProductImageAsset(body.referenceImageUrl,body.imageUrl),referenceText:String(body.referenceTitle||'').slice(0,1000)};
+      const imageOptions={sameAsset:sameProductImageAsset(body.referenceImageUrl,body.imageUrl),referenceText:String(body.referenceTitle||'').slice(0,1000),signal};
+      imageOptions.photoComparison=await photos.get(digest(reference)+':'+digest(candidate.buffer)+':'+imageOptions.sameAsset,reference,candidate.buffer,imageOptions);
       if(body.phase==='image-priority'){
-        const priority=await comparePixels(reference,candidate.buffer,imageOptions);
+        const priority=imageOptions.photoComparison;
         res.end(JSON.stringify({ok:true,comparison:{...priority,subject:null,matchStage:'page-image',priorityScore:priority.samePhoto?1:priority.imageSimilarity}}));return;
       }
       const text=String(body.candidateText||'').slice(0,18000);
@@ -130,9 +152,10 @@ export const server=http.createServer(async(req,res)=>{
       imageOptions.subjectMatching=true;
       const titleEvidence=titleMatchEvidence(body.referenceTitle,String(body.candidateTitle||'').slice(0,2000),specs.brand,listingSpecs(text).specs.brand);
       const review=async()=>{
+        signal.throwIfAborted();
         let result=await pageCompare(reference,candidate.buffer,specs,text,imageOptions);
         if(!isProductMatch(result)){
-          result=await serial(()=>config.engine==='cloud'?cloudCompare(config,body.referenceImage,candidate.dataUrl,specs,text,imageOptions):localCompare(reference,candidate.buffer,specs,text,imageOptions));
+          result=await serial(()=>{signal.throwIfAborted();return localCompare(reference,candidate.buffer,specs,text,imageOptions);});
         }
         result.matchStage='subject-review';
         result.matchedImageUrl=body.imageUrl;
@@ -141,40 +164,43 @@ export const server=http.createServer(async(req,res)=>{
         if(!isProductMatch(result)&&gallery.length){
           const anchor=await serial(()=>subjectDescriptor(reference));
           for(const imageUrl of gallery)try{
+            signal.throwIfAborted();
             const photo=await downloadImage(imageUrl),descriptor=await serial(()=>subjectDescriptor(photo.buffer));
             const compatibility=compareDescriptors(anchor,descriptor);
             // Same-product provenance alone cannot introduce a different color,
             // accessory, category or unrelated image as a reference template.
             if(!compatibility.valid||compatibility.subjectSimilarity<.75||compatibility.colorSimilarity<.88)continue;
             const shape=await compareReferenceShape(anchor.cropped,descriptor.cropped);if(!shape.compatible)continue;
-            const evaluated=await serial(()=>localCompare(photo.buffer,candidate.buffer,specs,text,{subjectMatching:true,referenceText:imageOptions.referenceText}));
+            const evaluated=await serial(()=>{signal.throwIfAborted();return localCompare(photo.buffer,candidate.buffer,specs,text,{subjectMatching:true,referenceText:imageOptions.referenceText,signal});});
             if(isProductMatch(evaluated)){result={...evaluated,matchStage:'subject-review',matchedImageUrl:body.imageUrl,matchedReferenceImageUrl:imageUrl,referenceEvidence:body.referenceImageSource,evidence:[...evaluated.evidence,'使用原商品当前页所属且与主图外观/颜色相容的图片补充参考；未打开商品页面，具体 SKU 未绑定']};break;}
-          }catch(error){alternativeErrors.push('参考图片：'+error.message);}
+          }catch(error){signal.throwIfAborted();alternativeErrors.push('参考图片：'+error.message);}
         }
         if(!isProductMatch(result))for(const imageUrl of [...new Set(Array.isArray(body.candidateImages)?body.candidateImages:[])].filter(value=>typeof value==='string'&&value!==body.imageUrl).slice(0,2)){
           try{
+            signal.throwIfAborted();
             const alternative=await downloadImage(imageUrl);
-            const options={sameAsset:sameProductImageAsset(body.referenceImageUrl,imageUrl),subjectMatching:true};
-            const evaluated=await serial(()=>config.engine==='cloud'?cloudCompare(config,body.referenceImage,alternative.dataUrl,specs,text,options):localCompare(reference,alternative.buffer,specs,text,options));
+            const options={sameAsset:sameProductImageAsset(body.referenceImageUrl,imageUrl),subjectMatching:true,signal};
+            const evaluated=await serial(()=>{signal.throwIfAborted();return localCompare(reference,alternative.buffer,specs,text,options);});
             if(isProductMatch(evaluated)||(evaluated.subject?.subjectSimilarity||0)>(result.subject?.subjectSimilarity||0))result={...evaluated,matchStage:'subject-review',matchedImageUrl:imageUrl};
             if(isProductMatch(result))break;
-          }catch(error){alternativeErrors.push(error.message);}
+          }catch(error){signal.throwIfAborted();alternativeErrors.push(error.message);}
         }
         if(alternativeErrors.length)result.alternativeErrors=alternativeErrors;
         return result;
       };
       const result=await groupedProductReview({titleEvidence,review,referenceSpecs:specs,candidateText:text,colors:async reviewed=>{
         const selected=reviewed.matchedImageUrl===body.imageUrl?candidate:await downloadImage(reviewed.matchedImageUrl);
-        return serial(()=>compareForegroundColors(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text}));
+        return serial(()=>{signal.throwIfAborted();return compareForegroundColors(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text});});
       },outlines:async reviewed=>{
         const selected=reviewed.matchedImageUrl===body.imageUrl?candidate:await downloadImage(reviewed.matchedImageUrl);
-        return serial(()=>compareForegroundOutlines(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text}));
+        return serial(()=>{signal.throwIfAborted();return compareForegroundOutlines(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text});});
       }});
-      if(PORT===43187)await recordSubjectResult(body,reference,candidate.buffer,result);
+      signal.throwIfAborted();if(PORT===43187)await recordSubjectResult(body,reference,candidate.buffer,result);
       res.end(JSON.stringify({ok:true,comparison:result}));return;
     }
     throw Object.assign(new Error('接口不存在'),{status:404});
   }catch(error){
+    if(res.destroyed)return;
     if(!res.headersSent){res.setHeader('Content-Type','application/json; charset=utf-8');res.writeHead(error.status||400);}
     res.end(JSON.stringify({ok:false,error:String(error.message||'服务错误').slice(0,300)}));
   }
@@ -185,6 +211,6 @@ if(process.argv[1]===fileURLToPath(import.meta.url)){
   await mkdir(new URL('.cache/',ROOT),{recursive:true});
   server.listen(PORT,'127.0.0.1',()=>{
     console.log('TEMU 本机服务已启动：http://127.0.0.1:'+PORT+'/setup');
-    if(config.engine==='local'){prepareFastFeatures().catch(()=>{});prepareSubjects().catch(()=>{});}
+    prepareNative().catch(error=>console.error('本机识别准备失败：'+error.message));
   });
 }

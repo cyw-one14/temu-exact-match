@@ -4,13 +4,14 @@ import {fileURLToPath} from 'node:url';
 import {descriptorCache} from './descriptor-cache.mjs';
 import {ATTENTION_REVISION,identifyAttention,productRegionHint} from './product-attention.mjs';
 import {nearestPatches} from './descriptor-match.mjs';
+import {configureNative,nativeDevice,sessionOptions,NATIVE_REVISION} from './native-runtime.mjs';
 
-export const SUBJECT_MODELS={segment:{id:'onnx-community/BiRefNet_lite-ONNX',revision:'de15b22ba131738a16dff04aab8bdf8dc32e3ac1'},features:{id:'Xenova/dinov2-small',revision:'c2bb04a51fab207c420665f1946016107bffc701'}};
+export const SUBJECT_MODELS={segment:{id:'studioludens/birefnet-lite-512',revision:'962e67969ec6acec9c19fab76acee4f5e22e990c'},features:{id:'Xenova/dinov2-small',revision:'c2bb04a51fab207c420665f1946016107bffc701'}};
 export const subjectState={state:'idle',message:'主体比对模型尚未加载',progress:null};
 let modelsPromise,featuresPromise;
 const cache=new Map();
 let extractionQueue=Promise.resolve();
-const attentionDirectory=fileURLToPath(new URL('../.cache/subjects-product-attention-v1/',import.meta.url));
+const attentionDirectory=fileURLToPath(new URL('../.cache/subjects-attention-'+NATIVE_REVISION+'-'+nativeDevice+'/',import.meta.url));
 const attentionCache=new Map();
 const layoutCache=new Map();
 function failedMetrics(metrics,rules){return rules.filter(([key,,required])=>metrics[key]<required).map(([key,label,required])=>({key,label,actual:metrics[key],required}));}
@@ -20,11 +21,13 @@ export function prepareSubjects(){
   subjectState.state='loading';subjectState.message='正在加载主体分割与视觉特征模型';
   modelsPromise=(async()=>{
     const lib=await import('@huggingface/transformers');
+    configureNative(lib);
     lib.env.cacheDir=fileURLToPath(new URL('../.cache/models/',import.meta.url));
     const progress_callback=event=>{if(event.status==='progress'){subjectState.message='下载主体模型 '+event.file;subjectState.progress=Number.isFinite(event.progress)?Math.round(event.progress):null;}};
-    const segment=await lib.AutoModel.from_pretrained(SUBJECT_MODELS.segment.id,{revision:SUBJECT_MODELS.segment.revision,dtype:'fp32',device:'cpu',progress_callback});
-    const segmentProcessor=await lib.AutoProcessor.from_pretrained(SUBJECT_MODELS.segment.id,{revision:SUBJECT_MODELS.segment.revision});
-    const featureModels=await prepareFeatures();
+    const [segment,segmentProcessor,featureModels]=await Promise.all([
+      lib.AutoModel.from_pretrained(SUBJECT_MODELS.segment.id,{revision:SUBJECT_MODELS.segment.revision,dtype:'fp32',device:nativeDevice,session_options:sessionOptions,progress_callback}),
+      lib.AutoProcessor.from_pretrained(SUBJECT_MODELS.segment.id,{revision:SUBJECT_MODELS.segment.revision}),prepareFeatures()
+    ]);
     subjectState.state='ready';subjectState.message='主体分割与特征比对已就绪';subjectState.progress=100;
     return {segment,segmentProcessor,...featureModels};
   })().catch(error=>{modelsPromise=null;subjectState.state='error';subjectState.message='主体模型加载失败：'+String(error.message||error).slice(0,160);throw error;});
@@ -33,8 +36,8 @@ export function prepareSubjects(){
 export function prepareFeatures(){
   if(featuresPromise)return featuresPromise;
   featuresPromise=(async()=>{
-    const lib=await import('@huggingface/transformers');lib.env.cacheDir=fileURLToPath(new URL('../.cache/models/',import.meta.url));
-    const features=await lib.AutoModel.from_pretrained(SUBJECT_MODELS.features.id,{revision:SUBJECT_MODELS.features.revision,dtype:'q8',device:'cpu'});
+    const lib=await import('@huggingface/transformers');configureNative(lib);lib.env.cacheDir=fileURLToPath(new URL('../.cache/models/',import.meta.url));
+    const features=await lib.AutoModel.from_pretrained(SUBJECT_MODELS.features.id,{revision:SUBJECT_MODELS.features.revision,dtype:'q8',device:'cpu',session_options:sessionOptions});
     const featureProcessor=await lib.AutoProcessor.from_pretrained(SUBJECT_MODELS.features.id,{revision:SUBJECT_MODELS.features.revision});
     return {features,featureProcessor,RawImage:lib.RawImage};
   })().catch(error=>{featuresPromise=null;throw error;});return featuresPromise;
@@ -61,7 +64,7 @@ async function extract(buffer){
   const image=await RawImage.fromBlob(new Blob([await sharp(buffer).rotate().resize(1024,1024,{fit:'inside',withoutEnlargement:true}).png().toBuffer()]));
   const inputs=await segmentProcessor(image);
   const outputs=await segment({input_image:inputs.pixel_values});
-  const maskTensor=outputs.output_image[0].sigmoid().mul(255).to('uint8');
+  const maskTensor=(outputs.logits||outputs.output_image)[0].sigmoid().mul(255).to('uint8');
   const mask=await RawImage.fromTensor(maskTensor).resize(image.width,image.height);
   let left=image.width,top=image.height,right=-1,bottom=-1,count=0;
   for(let y=0;y<image.height;y++)for(let x=0;x<image.width;x++)if(mask.data[(y*image.width+x)*mask.channels]>=160){count++;left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}
@@ -188,10 +191,12 @@ export async function subjectDescriptor(buffer){
   extractionQueue=task.catch(()=>{});return task;
 }
 export async function compareSubjects(reference,candidate,options={}){
+  options.signal?.throwIfAborted();
   const [baseA,baseB]=await Promise.all([subjectDescriptor(reference),subjectDescriptor(candidate)]);
   return comparePreparedSubjects(baseA,baseB,options);
 }
 export async function comparePreparedSubjects(baseA,baseB,options={}){
+  options.signal?.throwIfAborted();
   let a=baseA,b=baseB,attention={status:'preserved',applied:false,reason:'主体提取不完整，未调整关注区域'},focused=false;
   if(a.valid&&b.valid)try{
     const attendedA=await attentionDescriptor(a,options.referenceText||''),attendedB=await attentionDescriptor(b,options.candidateText||'');
@@ -201,6 +206,7 @@ export async function comparePreparedSubjects(baseA,baseB,options={}){
   }catch(error){attention={status:'unavailable',applied:false,reason:'区域关注未完成，已保留原主体复核：'+String(error.message||error).slice(0,120)};}
   const compare=focused?compareFocusedDescriptors:compareDescriptors;
   const verify=async result=>{
+    options.signal?.throwIfAborted();
     if(focused&&result.matched)try{
       const {compareFocusedFeatures}=await import('./fast-features.mjs');
       const detailVerification=await compareFocusedFeatures(result.descriptor,b);
@@ -211,6 +217,7 @@ export async function comparePreparedSubjects(baseA,baseB,options={}){
   let best=await verify({...compare(a,b),descriptor:a,referencePreview:baseA.preview,candidatePreview:baseB.preview,orientation:{mirror:false,rotation:0}});
   const attempts=[{mirror:false,rotation:0,matched:Boolean(best.matched)}];
   if(!best.matched&&a.valid&&b.valid)for(const [mirror,rotation] of [[true,0],[false,90],[false,180],[false,270],[true,90],[true,180],[true,270]]){
+    options.signal?.throwIfAborted();
     const transformed=focused?await orientedAttention(a,mirror,rotation):await orientedSubject(a,mirror,rotation);
     const result=await verify({...compare(transformed,b),descriptor:transformed,referencePreview:transformed.preview,candidatePreview:baseB.preview,orientation:{mirror,rotation}});
     attempts.push({mirror,rotation,matched:Boolean(result.matched)});
@@ -222,7 +229,7 @@ export async function comparePreparedSubjects(baseA,baseB,options={}){
     const [referenceRegions,candidateRegions]=await Promise.all([foregroundRegions(baseA),foregroundRegions(baseB)]);
     if(referenceRegions>1||candidateRegions>1)layout={foregroundRegions:{reference:referenceRegions,candidate:candidateRegions},layoutHint:'目前核对的是整组前景（参考 '+referenceRegions+' 个较大前景区域，候选 '+candidateRegions+' 个；不是商品件数）。多件拼图和摆放变化可能影响核对，尚未确认单件商品细节对应，不能据此认定不同款。'};
   }catch{/* Optional layout diagnosis cannot replace or discard the image verdict. */}
-  return {...best,...layout,attention,orientationAttempts:attempts,model:focused?'BiRefNet-lite + CLIPSeg/颜色关注 + DINOv2-small':'BiRefNet-lite + DINOv2-small'};
+  options.signal?.throwIfAborted();return {...best,...layout,attention,orientationAttempts:attempts,model:focused?'BiRefNet-lite + CLIPSeg/颜色关注 + DINOv2-small':'BiRefNet-lite + DINOv2-small'};
 }
 async function orientedSubject(descriptor,mirror,rotation){
   const key=createHash('sha256').update('subject-orientation-v1:'+mirror+':'+rotation).update(descriptor.cropped).digest('hex');

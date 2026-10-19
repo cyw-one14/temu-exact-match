@@ -1,11 +1,13 @@
 import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
 import {access} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {subjectDescriptor,instanceReference} from './subjects.mjs';
 
 export const fastFeatureState={state:'idle',algorithm:'SIFT',message:'快速特征核验尚未启动'};
-const python=fileURLToPath(new URL(process.platform==='win32'?'../.cache/feature-runtime/Scripts/python.exe':'../.cache/feature-runtime/bin/python',import.meta.url));
+const portable=new URL('../runtime/python/python.exe',import.meta.url);
+const python=process.env.TEMU_FEATURE_PYTHON||(existsSync(portable)?fileURLToPath(portable):fileURLToPath(new URL(process.platform==='win32'?'../.cache/feature-runtime/Scripts/python.exe':'../.cache/feature-runtime/bin/python',import.meta.url)));
 let child,readyPromise,nextId=0;
 const pending=new Map();
 function fail(error){
@@ -18,7 +20,7 @@ export function prepareFastFeatures(){
     await access(python);fastFeatureState.state='loading';
     return new Promise((resolve,reject)=>{
       let started=false;
-      child=spawn(python,['-u',fileURLToPath(new URL('./feature_worker.py',import.meta.url))],{stdio:['pipe','pipe','pipe'],windowsHide:true,env:{...process.env,PYTHONIOENCODING:'utf-8'}});
+      child=spawn(python,['-B','-u',fileURLToPath(new URL('./feature_worker.py',import.meta.url))],{stdio:['pipe','pipe','pipe'],windowsHide:true,env:{...process.env,PYTHONIOENCODING:'utf-8'}});
       const timeout=setTimeout(()=>{child.kill();reject(new Error('快速核验启动超时'));},10000);
       createInterface({input:child.stdout}).on('line',line=>{
         let data;try{data=JSON.parse(line);}catch{return;}
