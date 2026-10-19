@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import {readFile} from 'node:fs/promises';
+const source=await readFile(new URL('../extension/engine-worker.js',import.meta.url),'utf8');
+const tick=()=>new Promise(resolve=>setImmediate(resolve));
+test('production worker overlaps at most three photo jobs, binds out-of-order responses and serializes all deep jobs',async()=>{
+  const started=[],gates=new Map(),messages=[];
+  const runtime={prepare:async()=>{},health:()=>({ok:true}),prefetch:()=>{},request:(path,body)=>{started.push(body.candidateId);return new Promise((resolve,reject)=>gates.set(body.candidateId,{resolve,reject}));}};
+  const context=vm.createContext({TemuBrowserEngine:runtime,importScripts:()=>{},setInterval:()=>{},postMessage:data=>messages.push(data),console:{error:()=>{}}});vm.runInContext(source,context);
+  const send=(id,candidateId,phase='image-priority')=>context.onmessage({data:{id,path:'/compare',body:{candidateId,phase}}});
+  for(let id=1;id<=4;id++)send(id,'photo-'+id);
+  send(5,'deep-A','subject-review');send(6,'deep-B','subject-review');await tick();
+  assert.deepEqual(started,['photo-1','photo-2','photo-3','deep-A']);
+  gates.get('photo-2').resolve({candidateId:'photo-2'});await tick();assert.ok(started.includes('photo-4'));
+  assert.equal(messages.find(row=>row.id===2).result.candidateId,'photo-2');assert.equal(messages.some(row=>row.id===1),false);
+  gates.get('deep-A').resolve({candidateId:'deep-A'});await tick();assert.ok(started.includes('deep-B'));
+  gates.get('photo-1').reject(Error('image failed'));gates.get('photo-3').resolve({candidateId:'photo-3'});gates.get('photo-4').resolve({candidateId:'photo-4'});gates.get('deep-B').resolve({candidateId:'deep-B'});await tick();
+  assert.equal(messages.find(row=>row.id===1).error,'image failed');assert.equal(messages.find(row=>row.id===6).result.candidateId,'deep-B');
+  send(7,'deep-error','subject-review');send(8,'deep-after-error','subject-review');await tick();gates.get('deep-error').reject(Error('model failed'));await tick();assert.ok(started.includes('deep-after-error'));gates.get('deep-after-error').resolve({ok:true});await tick();
+});

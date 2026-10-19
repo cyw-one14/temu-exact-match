@@ -1,10 +1,14 @@
-# 浏览器内置识别 · 0.3.7
+# 浏览器内置识别 · 0.3.8
 
 同事只需解压完整ZIP并在Chrome/Edge加载含manifest.json的目录。不需要Node服务、Python安装、云端密钥或启动脚本。新侧栏和设置页不再访问43187；旧服务源码及本机启动项保留用于旧版和开发。
 
 ## 运行链路
 
 侧栏通过engine-client.mjs启动本扩展的专用Worker。Worker加载包内Transformers.js / ONNX Runtime Web / Pyodide，逐项运行原页面图片初筛、主体、适用的颜色和轮廓补充。关闭侧栏、停止或换图会终止Worker的在途计算；重新打开按会话进度恢复，模型重新准备。多个窗口的Worker各自占用内存。
+
+0.3.8允许最多3项图片读取/像素证据请求并行，使用独立的有界队列，响应仍按原请求ID返回。`/prepare`及完整主体/颜色/轮廓请求留在同一个串行队列，防止模型或Pyodide共享状态并发；错误继续按本商品记录，不影响下一项。原图下载并发数仍最多3，当前侧栏初筛同时发2项请求。局部特征双向最近邻的每对余弦只算一次，各向量平方范数每次比较只算一次，严格保持求和次序、并列选取与阈值；不归一化后近似、不建立分类缓存、不改变主体特征缓存版本。
+
+用户要求保持纯浏览器，50条完整核对10秒目标仍未达成。本机Intel UHD730使用固定512 fp32模型的WebGPU实验中，两张测试图各两次均得到空掩码；同模型WASM正常，因此未启用WebGPU。仅在开发验证页加强跨源隔离后试验4线程WASM，分割样本有效，但尚未完成实际扩展权限环境、所有远程图片及完整规则的兼容验证；本版不改manifest隔离策略或WASM单线程。参考[Chrome扩展跨源隔离](https://developer.chrome.com/docs/extensions/develop/concepts/cross-origin-isolation)、[ONNX Runtime线程配置](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html)及[Transformers.js WebGPU说明](https://huggingface.co/docs/transformers.js/guides/webgpu)。开发实验与算术微基准不能当作50条实际商品成绩，测试成功不代表识别准确率。
 
 - 分割：BiRefNet-lite 512 fp32，固定导出`studioludens/birefnet-lite-512@962e67969ec6acec9c19fab76acee4f5e22e990c`。作者来源和许可证随包提供。
 - 特征：原DINOv2-small q8，固定c2bb04a；人体语义关注：原CLIPSeg q8，固定924dc94。

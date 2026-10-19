@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {descriptorCache} from './descriptor-cache.mjs';
 import {ATTENTION_REVISION,identifyAttention,productRegionHint} from './product-attention.mjs';
+import {nearestPatches} from './descriptor-match.mjs';
 
 export const SUBJECT_MODELS={segment:{id:'onnx-community/BiRefNet_lite-ONNX',revision:'de15b22ba131738a16dff04aab8bdf8dc32e3ac1'},features:{id:'Xenova/dinov2-small',revision:'c2bb04a51fab207c420665f1946016107bffc701'}};
 export const subjectState={state:'idle',message:'主体比对模型尚未加载',progress:null};
@@ -43,8 +44,7 @@ export function cosine(a,b){let dot=0,aa=0,bb=0;if(!a?.length||a.length!==b?.len
 export function compareDescriptors(a,b){
   if(!a?.valid||!b?.valid)return {valid:false,subjectSimilarity:null,reason:'商品主体提取不完整'};
   const subjectSimilarity=cosine(a.embedding,b.embedding);
-  const nearest=(from,to)=>from.map(token=>{let index=-1,score=-1;to.forEach((other,i)=>{const value=cosine(token,other);if(value>score){index=i;score=value;}});return {index,score};});
-  const ab=nearest(a.patches,b.patches),ba=nearest(b.patches,a.patches);
+  const {ab,ba}=nearestPatches(a.patches,b.patches);
   const mutual=ab.filter((match,i)=>match.score>=.86&&ba[match.index]?.index===i);
   const localSimilarity=mutual.length?mutual.reduce((sum,item)=>sum+item.score,0)/mutual.length:0;
   const localCoverage=mutual.length/Math.max(1,Math.min(a.patches.length,b.patches.length));
@@ -111,8 +111,7 @@ export async function describePreparedSubject(cropped){
 
 export function compareFocusedDescriptors(a,b){
   if(!a?.valid||!b?.valid||a.focusMode!==ATTENTION_REVISION||b.focusMode!==ATTENTION_REVISION)return {valid:false,matched:false,subjectSimilarity:null,reason:'商品关注区域的可见细节不足，保留无法确认'};
-  const nearest=(from,to)=>from.map(token=>{let index=-1,score=-1;to.forEach((other,i)=>{const value=cosine(token,other);if(value>score){index=i;score=value;}});return {index,score};});
-  const ab=nearest(a.patches,b.patches),ba=nearest(b.patches,a.patches),mutual=[];
+  const {ab,ba}=nearestPatches(a.patches,b.patches),mutual=[];
   ab.forEach((match,i)=>{if(match.score>=.86&&ba[match.index]?.index===i)mutual.push({...match,source:i});});
   const subjectSimilarity=cosine(a.embedding,b.embedding),localSimilarity=mutual.length?mutual.reduce((sum,item)=>sum+item.score,0)/mutual.length:0;
   const localCoverage=mutual.length/Math.max(1,a.patches.length,b.patches.length);
