@@ -7,4 +7,3 @@ test('photo evidence is shared across phases but cloned for callers and never re
   assert.equal(b.evidence.value,false);assert.equal((await cache.get('reference-A:candidate-A:false',false)).samePhoto,false);assert.equal(calls,1);
   assert.equal((await cache.get('reference-B:candidate-A:false',true)).samePhoto,true);await cache.get('reference-A:candidate-A:true',true);assert.equal(calls,3);
 });
-
