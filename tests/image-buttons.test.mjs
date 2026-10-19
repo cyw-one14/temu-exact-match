@@ -20,8 +20,20 @@ async function mount(html,{url='https://www.temu.com/goods.html?goods_id=6011234
 // Public tooltip markers and sibling links observed on the TEMU home list.
 // Deep image wrappers are deliberate; no application state or private API data.
 function listCard(id,title,image){
-  return `<div data-tooltip="goodContainer-${id}" data-tooltip-title="${title}"><div><div data-tooltip="goodsImage-${id}" data-tooltip-title="${title}">${'<div>'.repeat(5)}<img aria-hidden="true" src="https://img.kwcdn.com/placeholder-${image}.jpg"><img src="https://img.kwcdn.com/${image}.jpg" alt="商品图片 ${title}">${'</div>'.repeat(5)}</div><a href="https://www.temu.com/original-g-${id}.html"><div data-tooltip="goodName-${id}" data-tooltip-title="${title}"><h3>${title}</h3></div></a></div></div>`;
+  return `<div data-tooltip="goodContainer-${id}" data-tooltip-title="${title}"><div><div data-tooltip="goodsImage-${id}" data-tooltip-title="${title}">${'<div>'.repeat(5)}<img aria-hidden="true" style="display:none" src="https://img.kwcdn.com/placeholder-${image}.jpg"><img src="https://img.kwcdn.com/${image}.jpg" alt="商品图片 ${title}">${'</div>'.repeat(5)}</div><a href="https://www.temu.com/original-g-${id}.html"><div data-tooltip="goodName-${id}" data-tooltip-title="${title}"><h3>${title}</h3></div></a></div></div>`;
 }
+
+test('visually exposed aria-hidden list images remain selectable, with only the front high-resolution layer receiving a button',async()=>{
+  const app=await mount('<html><body><div aria-hidden="true" data-tooltip="goodContainer-601123456789075"><div data-tooltip="goodsImage-601123456789075"><img id="blur" aria-hidden="true" src="https://img.kwcdn.com/captured.jpg?thumbnail=150"><img id="visible" aria-hidden="true" src="https://img.kwcdn.com/captured.jpg?thumbnail=500"></div><a href="https://www.temu.com/captured-g-601123456789075.html"><h3 data-tooltip="goodName-601123456789075">Original visible listing</h3></a></div></body></html>',{url:'https://www.temu.com/',front:document=>[document.getElementById('visible'),document.getElementById('blur'),document.body]});
+  assert.equal(app.shadow.querySelectorAll('button').length,1);app.shadow.querySelector('button').click();
+  assert.equal(app.messages[0].selection.imageUrl,'https://img.kwcdn.com/captured.jpg?thumbnail=500');assert.equal(app.messages[0].selection.productId,'601123456789075');
+  assert.equal(app.document.getElementById('visible').getAttribute('aria-hidden'),'true','the page accessibility marker must not be modified');
+});
+
+test('actual hidden attributes and CSS remain excluded even when aria-hidden is only an accessibility hint',async()=>{
+  const app=await mount('<html><body><article data-product-id="601123456789075"><img id="visible" aria-hidden="true" src="https://img.kwcdn.com/visible.jpg"><img hidden src="https://img.kwcdn.com/hidden.jpg"><img aria-hidden="true" style="display:none" src="https://img.kwcdn.com/display-none.jpg"><div style="visibility:hidden"><img src="https://img.kwcdn.com/invisible.jpg"></div><div style="opacity:0"><img src="https://img.kwcdn.com/transparent.jpg"></div></article></body></html>',{url:'https://www.temu.com/'});
+  assert.equal(app.shadow.querySelectorAll('button').length,1);app.shadow.querySelector('button').click();assert.equal(app.messages[0].selection.imageUrl,'https://img.kwcdn.com/visible.jpg');
+});
 
 test('deep home-list thumbnails get separate buttons bound to their public card ID and original title without opening details',async()=>{
   const app=await mount('<html><body><main>'+listCard('601123456789071','Original glove listing','gloves')+listCard('601123456789072','Original comb listing','comb')+'</main></body></html>',{url:'https://www.temu.com/',rect:img=>({left:img.src.includes('comb')?300:20,top:100,right:img.src.includes('comb')?556:276,bottom:356,width:256,height:256})});

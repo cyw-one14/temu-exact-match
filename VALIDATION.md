@@ -463,3 +463,12 @@
 - scripts/preview-image-buttons.mjs新增--listing与可选端口，43215独立浏览器预览使用3张此前已抓取官方图片及明确标为测试的标题/ID，运行生产按钮脚本，只替身捕获消息、不发真实图搜。最终脚本刷新后3个小图均显示按钮，点击木梳得到木梳图片与测试ID601999999999902，URL仍为预览列表，没有进入商品详情。截图.cache/ui-validation/list-buttons-0.3.6.png不入Git或安装包；验证标签关闭，只停止本次43215预览进程，用户已打开的TEMU/第三方/其他页面与扩展存储未修改。
 - 最终node scripts/package.mjs及python scripts/verify-package.py通过：0.3.6 ZIP79文件、316,252,141字节，SHA-256为D7D5DB8478A4E42FDDB0E9606A6179BCED155519EC01826753EC3C2E0D1C697C，版本ZIP和摘要保留dist。固定模型、Python/shared源码、MV3/WASM安全策略与稳定ID验证通过，另逐字核对28个包内入口与磁盘最新文件一致；版本、README、安装说明与AGENTS同步，测试预览脚本不入包。
 - 打包后执行service-control.mjs start，NoProxy直连43187/health确认兼容服务0.3.6、主体与SIFT ready，其他模型按需idle；新扩展仍不依赖该服务，未改自启。fetch确认origin/main与起点一致，git diff --check通过。用户先导出需要保留的本次JSON，再重新加载原项目extension并刷新TEMU首页/列表；长期人工分类保留，未代用户重载或清理数据。
+
+## 2026-10-19：修复aria-hidden误过滤可见商品小图0.3.7
+
+- 起点main/dbd3eb1/0.3.6工作区干净，已读AGENTS、README及验证记录。用户确认Edge版本0.3.6、加载项目extension目录且重载/刷新后仍无按钮，排除继续以版本或刷新作为结论。通过浏览器只读检查用户已打开的TEMU首页，确认插件宿主已存在，5件可见商品的低清/高清共10张图片均为aria-hidden=true、display:block、visibility:visible、opacity:1，商品标识与所属链接一致；遮挡采样显示500层在150层前方。旧exposed()直接按aria-hidden过滤，所以可见高清图也全部被排除。
+- 根因为本插件将无障碍标记误当视觉隐藏状态；aria-hidden本身不决定视觉可见性。去掉这一单独排除条件，仍检查连接/布局、hidden、祖先CSS显示/透明度、视口及多点遮挡，不修改站点ARIA属性、不处理原图、不扩大商品归属规则。原深层卡片、标题绑定、点击重查、隐藏图及被覆盖低清层过滤保持。0.3.6预览将aria-hidden直接配成display:none且只给低清层加标记，未覆盖真实两层均带标记的情况；已修正预览与相关测试建模。
+- 先新增两个回归用例，旧代码均以0按钮复现失败；修复后图片按钮相关22项通过，覆盖图片与祖先均带aria-hidden但可见、高清层唯一按钮与正确URL/ID、原ARIA不被修改、hidden/display:none/visibility:hidden/opacity:0继续排除及原详情/虚拟卡片规则。最终node --test --test-concurrency=1 tests/*.test.mjs完整191项通过，0失败/跳过，约68.00秒，日志.cache/validation-0.3.7-final.log。不改模型或title-groups-outline-v16规则，不据界面测试宣称识别准确率。
+- 43215隔离--listing浏览器预览按真实情况将6张图片均设aria-hidden=true，CSS实际叠放而非隐藏低清层；生产按钮脚本只生成3个按钮，点击木梳捕获500高清图和测试商品ID601999999999902，页面未跳入详情。只替身捕获消息，不向真实图搜发送测试数据。截图.cache/ui-validation/list-buttons-aria-0.3.7.png不入Git/包；验证标签关闭，只停止本次43215进程。真实TEMU页仅只读排查，未修改用户页面、已安装扩展状态或存储，尚未代用户重载验证安装后的新按钮。
+- node scripts/package.mjs及python scripts/verify-package.py通过：0.3.7 ZIP79文件、316,252,216字节，SHA-256为59D7251B79FF0009A92E290408ABDDD108DCDC43FFE74DDFD7F20BADB3A033AC；版本ZIP与摘要留在dist。固定模型、Python/shared源码、安全策略与稳定ID验证通过，另逐字核对28个包内入口与最新磁盘一致。版本、安装说明、README及AGENTS同步。
+- 打包后执行service-control.mjs start，NoProxy直连43187/health确认兼容服务0.3.7、主体与SIFT ready，其他模型按需idle，未改自启；浏览器扩展仍不依赖该服务。fetch确认origin/main与起点一致，git diff --check通过。用户需要保留本次结果时先导出JSON，再重新加载同一项目目录扩展并刷新TEMU，长期人工记忆保持；不将源代码已修复/隔离预览成功冒充用户已安装扩展完成真实查询验证。

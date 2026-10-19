@@ -14,7 +14,9 @@
   function identity(raw){try{const url=new URL(raw,location.href);if(url.hostname!=='www.temu.com')return '';const id=url.searchParams.get('goods_id')||url.pathname.match(/-g-(\d+)\.html$/)?.[1];return /^\d{6,25}$/.test(id||'')?id:'';}catch{return '';}}
   function visibleArea(img){const r=img.getBoundingClientRect();return Math.max(0,Math.min(innerWidth,r.right)-Math.max(0,r.left))*Math.max(0,Math.min(innerHeight,r.bottom)-Math.max(0,r.top));}
   function exposed(img){
-    if(!img.isConnected||!img.getClientRects().length||!visibleArea(img)||img.closest('[hidden],[aria-hidden="true"]'))return false;
+    // aria-hidden controls screen-reader exposure, not visual visibility. TEMU
+    // marks both its visible list image and the covered low-res layer this way.
+    if(!img.isConnected||!img.getClientRects().length||!visibleArea(img)||img.closest('[hidden]'))return false;
     if(typeof getComputedStyle==='function')for(let node=img;node&&node.nodeType===1;node=node.parentElement){const style=getComputedStyle(node);if(style.display==='none'||['hidden','collapse'].includes(style.visibility)||style.opacity!==''&&Number(style.opacity)===0)return false;}
     const rect=img.getBoundingClientRect();
     if(typeof document.elementsFromPoint==='function'){
