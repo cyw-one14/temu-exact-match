@@ -1,6 +1,6 @@
-# 安装说明 · 0.4.5 本机后台版
+# 安装说明 · 0.4.6 本机后台版
 
-适用：64位Windows10/11，Chrome或Edge。请发送完整的 temu-exact-match-0.4.5-windows-x64.zip 给同事。
+适用：64位Windows10/11，Chrome或Edge。请发送完整的 temu-exact-match-0.4.6-windows-x64.zip 给同事。
 
 1. 完整解压ZIP，双击 Install-TEMU.cmd，等待“安装完成”。不要在压缩包内运行。
 2. 安装后自动打开本机助手页面，点击“复制扩展目录”。程序固定安装在 %LOCALAPPDATA%\TemuExactMatch。
