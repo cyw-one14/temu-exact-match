@@ -43,7 +43,7 @@ with ZipFile(archive) as package:
         assert package.read('extension/' + name) == (root / 'extension' / name).read_bytes(), name
     for name in ['core', 'provider', 'prices', 'listing', 'title-match', 'collection']:
         assert package.read('extension/' + name + '.mjs') == (root / 'shared' / (name + '.mjs')).read_bytes()
-    for name in ['feature_worker.py', 'instance_match.py', 'outline_match.py', 'index.mjs', 'subjects.mjs', 'native-runtime.mjs', 'native-model-specs.mjs', 'native-model-client.mjs', 'native-model-worker.mjs', 'native-tensors.mjs', 'feature-output-cache.mjs', 'photo-cache.mjs', 'vision.mjs']:
+    for name in ['feature_worker.py', 'instance_match.py', 'outline_match.py', 'index.mjs', 'subjects.mjs', 'native-runtime.mjs', 'native-model-specs.mjs', 'native-model-client.mjs', 'native-model-worker.mjs', 'native-tensors.mjs', 'feature-output-cache.mjs', 'parallel-work.mjs', 'fast-features.mjs', 'product-attention.mjs', 'outline-match.mjs', 'photo-cache.mjs', 'vision.mjs']:
         assert package.read('server/' + name) == (root / 'server' / name).read_bytes()
     for name in ['service-runtime.mjs', 'service-control.mjs', 'service-autostart.mjs', 'service-shortcut.mjs', 'service-watchdog.mjs', 'watchdog-policy.mjs', 'install-local.mjs']:
         assert package.read('scripts/' + name) == (root / 'scripts' / name).read_bytes()

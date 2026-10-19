@@ -5,7 +5,8 @@ import {descriptorCache} from './descriptor-cache.mjs';
 import {ATTENTION_REVISION,identifyAttention,productRegionHint} from './product-attention.mjs';
 import {nearestPatches} from './descriptor-match.mjs';
 import {FeatureOutputCache} from './feature-output-cache.mjs';
-import {configureNative,nativeDevice,NATIVE_REVISION} from './native-runtime.mjs';
+import {configureNative,nativeDevice,nativeWorkers,NATIVE_REVISION} from './native-runtime.mjs';
+import {WorkQueue,SharedWork} from './parallel-work.mjs';
 import {prepareNativeModel} from './native-model-client.mjs';
 import {SUBJECT_MODELS} from './native-model-specs.mjs';
 
@@ -13,7 +14,7 @@ export {SUBJECT_MODELS};
 export const subjectState={state:'idle',message:'主体比对模型尚未加载',progress:null};
 let modelsPromise,featuresPromise;
 const cache=new Map();
-let extractionQueue=Promise.resolve();
+const extractionQueue=new WorkQueue(nativeWorkers),shared=new SharedWork();
 const attentionDirectory=fileURLToPath(new URL('../.cache/subjects-attention-'+NATIVE_REVISION+'-'+nativeDevice+'/',import.meta.url));
 const attentionCache=new Map();
 const layoutCache=new Map();
@@ -69,7 +70,7 @@ async function extract(buffer,{signal}={}){
   const image=await RawImage.fromBlob(new Blob([await sharp(buffer).rotate().resize(1024,1024,{fit:'inside',withoutEnlargement:true}).png().toBuffer()]));
   const inputs=await segmentProcessor(image);
   signal?.throwIfAborted();
-  const outputs=await segment({input_image:inputs.pixel_values});
+  const outputs=await segment({input_image:inputs.pixel_values},{signal});
   signal?.throwIfAborted();
   const maskTensor=(outputs.logits||outputs.output_image)[0].sigmoid().mul(255).to('uint8');
   const mask=await RawImage.fromTensor(maskTensor).resize(image.width,image.height);
@@ -81,16 +82,20 @@ async function extract(buffer,{signal}={}){
   const bounds={left,top,width:right-left+1,height:bottom-top+1};
   const cropped=await sharp(Buffer.from(rgba.data),{raw:{width:rgba.width,height:rgba.height,channels:rgba.channels}}).extract(bounds).resize(224,224,{fit:'contain',background:'#ffffff00'}).png().toBuffer();
   signal?.throwIfAborted();
-  return {...await describeCrop(cropped),coverage,bounds,cropped};
+  return {...await describeCrop(cropped,null,{signal}),coverage,bounds,cropped};
 }
 
-async function describeCrop(cropped,attention=null){
+async function describeCrop(cropped,attention=null,{signal}={}){
+  signal?.throwIfAborted();
   const {features,featureProcessor,RawImage}=await prepareFeatures();
   const neutral=await sharp(cropped).flatten({background:'#fff'}).png().toBuffer();
-  const featureOutput=await featureOutputs.get(neutral,async()=>{
+  signal?.throwIfAborted();
+  const featureOutput=await featureOutputs.get(neutral,async featureSignal=>{
     const subject=await RawImage.fromBlob(new Blob([neutral]));
-    return features(await featureProcessor(subject));
-  });
+    const inputs=await featureProcessor(subject);featureSignal?.throwIfAborted();
+    return features(inputs,{signal:featureSignal});
+  },{signal});
+  signal?.throwIfAborted();
   const hidden=featureOutput.last_hidden_state;
   let embedding=Array.from(featureOutput.pooler_output?.data||hidden.data.slice(0,hidden.dims.at(-1)));
   const size=hidden.dims.at(-1),grid=Math.round(Math.sqrt(hidden.dims[1]-1)),patches=[],positions=[];
@@ -166,8 +171,10 @@ async function attentionDescriptor(descriptor,text,{signal}={}){
   signal?.throwIfAborted();
   const hint=productRegionHint(text),key=createHash('sha256').update(ATTENTION_REVISION+':'+hint).update(descriptor.cropped).digest('hex');
   if(attentionCache.has(key))return attentionCache.get(key);
-  const result=await descriptorCache(key,async()=>{signal?.throwIfAborted();const attention=await identifyAttention(descriptor.cropped,hint);signal?.throwIfAborted();return describeCrop(descriptor.cropped,attention);},{directory:attentionDirectory,validate:attentionRecord});
-  if(attentionCache.size>=256)attentionCache.delete(attentionCache.keys().next().value);attentionCache.set(key,result);return result;
+  return shared.get('attention:'+key,async signal=>{
+    const result=await descriptorCache(key,async()=>{signal.throwIfAborted();const attention=await identifyAttention(descriptor.cropped,hint,{signal});signal.throwIfAborted();return describeCrop(descriptor.cropped,attention,{signal});},{directory:attentionDirectory,validate:attentionRecord});
+    signal.throwIfAborted();if(attentionCache.size>=256)attentionCache.delete(attentionCache.keys().next().value);attentionCache.set(key,result);return result;
+  },{signal});
 }
 export async function instanceReference(descriptor,text='',options={}){
   const attended=await attentionDescriptor(descriptor,text,options);options.signal?.throwIfAborted();
@@ -177,30 +184,32 @@ export async function instanceReference(descriptor,text='',options={}){
   if(info.skinSeedPixels>=40){const rgba=await sharp(descriptor.cropped).ensureAlpha().raw().toBuffer();let foreground=0;for(let i=3;i<rgba.length;i+=4)if(rgba[i]>=160)foreground++;if(info.productSeedPixels<Math.max(40,foreground*.08))throw new Error('参考人体区域与商品主体未可靠区分');}
   return attended;
 }
-async function orientedAttention(descriptor,mirror,rotation){
+async function orientedAttention(descriptor,mirror,rotation,{signal}={}){
+  signal?.throwIfAborted();
   const key=createHash('sha256').update(ATTENTION_REVISION+':orientation:'+mirror+':'+rotation).update(descriptor.cropped).update(descriptor.attentionWeights).digest('hex');
   if(attentionCache.has(key))return attentionCache.get(key);
-  const result=await descriptorCache(key,async()=>{
-    let cropped=descriptor.cropped,weights=Buffer.from(descriptor.attentionWeights,'base64');
-    weights=await sharp(weights,{raw:{width:224,height:224,channels:1}}).png().toBuffer();
-    if(mirror){cropped=await sharp(cropped).flop().png().toBuffer();weights=await sharp(weights).flop().png().toBuffer();}
-    if(rotation){cropped=await sharp(cropped).rotate(rotation,{background:'#ffffff00'}).png().toBuffer();weights=await sharp(weights).rotate(rotation).png().toBuffer();}
-    weights=await sharp(weights).greyscale().raw().toBuffer();
-    return describeCrop(cropped,{weights,summary:descriptor.attention});
-  },{directory:attentionDirectory,validate:attentionRecord});
-  if(attentionCache.size>=256)attentionCache.delete(attentionCache.keys().next().value);attentionCache.set(key,result);return result;
+  return shared.get('attention:'+key,async signal=>{
+    const result=await descriptorCache(key,async()=>{
+      let cropped=descriptor.cropped,weights=Buffer.from(descriptor.attentionWeights,'base64');
+      weights=await sharp(weights,{raw:{width:224,height:224,channels:1}}).png().toBuffer();
+      if(mirror){cropped=await sharp(cropped).flop().png().toBuffer();weights=await sharp(weights).flop().png().toBuffer();}
+      if(rotation){cropped=await sharp(cropped).rotate(rotation,{background:'#ffffff00'}).png().toBuffer();weights=await sharp(weights).rotate(rotation).png().toBuffer();}
+      weights=await sharp(weights).greyscale().raw().toBuffer();
+      return describeCrop(cropped,{weights,summary:descriptor.attention},{signal});
+    },{directory:attentionDirectory,validate:attentionRecord});
+    signal.throwIfAborted();if(attentionCache.size>=256)attentionCache.delete(attentionCache.keys().next().value);attentionCache.set(key,result);return result;
+  },{signal});
 }
 
 export async function subjectDescriptor(buffer,options={}){
   options.signal?.throwIfAborted();
   const key=createHash('sha256').update(buffer).digest('hex');
   if(cache.has(key)){const value=cache.get(key);cache.delete(key);cache.set(key,value);return value;}
-  const task=extractionQueue.then(async()=>{
-    options.signal?.throwIfAborted();
+  return shared.get('subject:'+key,signal=>extractionQueue.run(async()=>{
+    signal.throwIfAborted();
     if(cache.has(key))return cache.get(key);
-    const result=await descriptorCache(key,()=>extract(buffer,options));options.signal?.throwIfAborted();if(cache.size>=256)cache.delete(cache.keys().next().value);cache.set(key,result);return result;
-  });
-  extractionQueue=task.catch(()=>{});return task;
+    const result=await descriptorCache(key,()=>extract(buffer,{signal}));signal.throwIfAborted();if(cache.size>=256)cache.delete(cache.keys().next().value);cache.set(key,result);return result;
+  },{signal}),options);
 }
 export async function prepareReferenceFeatures(buffer,text='',{signal}={}){
   signal?.throwIfAborted();const descriptor=await subjectDescriptor(buffer,{signal});
@@ -226,7 +235,7 @@ export async function comparePreparedSubjects(baseA,baseB,options={}){
     options.signal?.throwIfAborted();
     if(focused&&result.matched)try{
       const {compareFocusedFeatures}=await import('./fast-features.mjs');
-      const detailVerification=await compareFocusedFeatures(result.descriptor,b);
+      const detailVerification=await compareFocusedFeatures(result.descriptor,b,options);
       result={...result,matched:detailVerification.matched,detailVerification,failedChecks:detailVerification.matched?result.failedChecks:[...(result.failedChecks||[]),{key:'local-content',label:'商品局部图像内容未通过',actual:detailVerification.reason,required:'商品几何、颜色和局部内容共同一致'}],reason:detailVerification.matched?'商品关注区域的特征、几何对应、颜色和局部图像内容一致':'商品关注区域的局部图像内容仍未核实，保留无法确认'};
     }catch(error){result={...result,matched:false,detailVerification:{matched:false,reason:String(error.message||error).slice(0,160)},reason:'商品关注区域的细节校验未完成，保留无法确认'};}
     delete result.descriptor;return result;
@@ -235,7 +244,7 @@ export async function comparePreparedSubjects(baseA,baseB,options={}){
   const attempts=[{mirror:false,rotation:0,matched:Boolean(best.matched)}];
   if(!best.matched&&a.valid&&b.valid)for(const [mirror,rotation] of [[true,0],[false,90],[false,180],[false,270],[true,90],[true,180],[true,270]]){
     options.signal?.throwIfAborted();
-    const transformed=focused?await orientedAttention(a,mirror,rotation):await orientedSubject(a,mirror,rotation);
+    const transformed=focused?await orientedAttention(a,mirror,rotation,options):await orientedSubject(a,mirror,rotation,options);
     const result=await verify({...compare(transformed,b),descriptor:transformed,referencePreview:transformed.preview,candidatePreview:baseB.preview,orientation:{mirror,rotation}});
     attempts.push({mirror,rotation,matched:Boolean(result.matched)});
     if(result.matched||(result.subjectSimilarity||0)>(best.subjectSimilarity||0))best=result;
@@ -248,20 +257,20 @@ export async function comparePreparedSubjects(baseA,baseB,options={}){
   }catch{/* Optional layout diagnosis cannot replace or discard the image verdict. */}
   options.signal?.throwIfAborted();return {...best,...layout,attention,orientationAttempts:attempts,model:focused?'BiRefNet-lite + CLIPSeg/颜色关注 + DINOv2-small':'BiRefNet-lite + DINOv2-small'};
 }
-async function orientedSubject(descriptor,mirror,rotation){
+async function orientedSubject(descriptor,mirror,rotation,options={}){
+  options.signal?.throwIfAborted();
   const key=createHash('sha256').update('subject-orientation-v1:'+mirror+':'+rotation).update(descriptor.cropped).digest('hex');
   if(cache.has(key))return cache.get(key);
-  const task=extractionQueue.then(async()=>{
+  return shared.get('subject:'+key,signal=>extractionQueue.run(async()=>{
     if(cache.has(key))return cache.get(key);
     const result=await descriptorCache(key,async()=>{
       let cropped=descriptor.cropped;
       if(mirror)cropped=await sharp(cropped).flop().png().toBuffer();
       if(rotation)cropped=await sharp(cropped).rotate(rotation,{background:'#ffffff00'}).png().toBuffer();
-      return describeCrop(cropped);
+      return describeCrop(cropped,null,{signal});
     });
-    if(cache.size>=256)cache.delete(cache.keys().next().value);cache.set(key,result);return result;
-  });
-  extractionQueue=task.catch(()=>{});return task;
+    signal.throwIfAborted();if(cache.size>=256)cache.delete(cache.keys().next().value);cache.set(key,result);return result;
+  },{signal}),options);
 }
 export function cachedSubjectComparison(reference,candidate){
   const key=buffer=>createHash('sha256').update(buffer).digest('hex');

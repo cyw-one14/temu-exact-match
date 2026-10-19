@@ -33,6 +33,46 @@ async function mount(saved,{compare,selection=null,provider=null,storageFails=fa
 const action=(ui,section,id,decision,source='provider-visible')=>ui.get(section).querySelector(`[data-product-id="${id}"][data-source="${source}"] [data-action="${decision}"]`);
 async function exportData(ui){let blob;const original=URL.createObjectURL;URL.createObjectURL=value=>{blob=value;return 'blob:test';};try{ui.get('export').click();return JSON.parse(await blob.text());}finally{URL.createObjectURL=original;}}
 
+test('subject review overlaps at most three requests, preserves response identity and manual decisions, and saves every completion',async()=>{
+  const items=Array.from({length:6},(_,i)=>{const item=makeItem('60112345678910'+i,'pending');delete item.subjectAttempt;return item;});
+  const held=new Map();let active=0,peak=0;
+  const ui=await mount(savedState(items),{compare:async body=>{
+    assert.equal(body.phase,'subject-review');active++;peak=Math.max(peak,active);
+    return new Promise(resolve=>held.set(body.candidateId,()=>{active--;resolve({status:'visual-match',evidence:['TEST response '+body.candidateId]});}));
+  }});
+  try{
+    await until(()=>ui.requests.length===3);assert.equal(active,3);await delay();assert.equal(ui.requests.length,3);
+    ui.get('pending-toggle').click();action(ui,'pending-results',ui.requests[0].candidateId,'different').click();await until(()=>ui.saved?.items.some(item=>item.manualClassification));
+    held.get(ui.requests[2].candidateId)();await until(()=>ui.requests.length===4);
+    held.get(ui.requests[1].candidateId)();held.get(ui.requests[0].candidateId)();await until(()=>ui.requests.length===6);
+    for(const body of ui.requests.slice(3))held.get(body.candidateId)();
+    await until(()=>ui.saved?.items.every(item=>item.subjectAttempt===1)&&!ui.get('analyze').disabled);
+    assert.equal(peak,3);for(const item of ui.saved.items)assert.deepEqual(item.evidence,['TEST response '+item.id]);
+    assert.equal(ui.saved.items.find(item=>item.id===ui.requests[0].candidateId).manualClassification.decision,'different');assert.equal(ui.get('same-total').textContent,'5');
+  }finally{for(const release of held.values())release();ui.close();}
+});
+
+test('cancelling a parallel batch discards late replies and leaves queued and in-flight items unfinished',async()=>{
+  const items=Array.from({length:6},(_,i)=>{const item=makeItem('60112345678920'+i,'pending');delete item.subjectAttempt;return item;});
+  const held=[];const ui=await mount(savedState(items),{compare:body=>new Promise(resolve=>held.push(()=>resolve({status:'visual-match',evidence:['TEST late '+body.candidateId]})))});
+  try{
+    await until(()=>held.length===3);ui.get('cancel').click();for(const release of held)release();
+    await until(()=>!ui.get('analyze').disabled);assert.equal(ui.requests.length,3);
+    assert.ok(ui.saved.items.every(item=>item.status==='pending'&&item.subjectAttempt===undefined));
+  }finally{for(const release of held)release();ui.close();}
+});
+
+test('one fatal parallel request pauses the batch without completing its peers or dispatching queued candidates',async()=>{
+  const items=Array.from({length:6},(_,i)=>{const item=makeItem('60112345678930'+i,'pending');delete item.subjectAttempt;return item;});
+  const held=[];const ui=await mount(savedState(items),{compare:()=>new Promise((resolve,reject)=>held.push({resolve,reject}))});
+  try{
+    await until(()=>held.length===3);held[1].reject(Object.assign(Error('TEST native lane exited'),{serviceUnavailable:true}));await delay();
+    held[0].resolve({status:'visual-match'});held[2].resolve({status:'visual-match'});
+    await until(()=>!ui.get('analyze').disabled);assert.equal(ui.requests.length,3);assert.ok(ui.saved.items.every(item=>item.status==='pending'&&item.subjectAttempt===undefined));
+    assert.match(ui.get('status').textContent,/TEST native lane exited/);
+  }finally{for(const row of held)row.resolve({status:'pending'});ui.close();}
+});
+
 test('moving from browser to native clears automatic evidence but keeps remembered user classifications',async()=>{
   const manual={...makeItem('601123456789091','different'),manualClassification:{source:'user',decision:'same',updatedAt:'2026-10-16T01:00:00Z'}};
   const automatic=makeItem('601123456789092','different');
@@ -145,11 +185,11 @@ test('subject progress counts completed responses, keeps in-flight user correcti
     if(body.phase!=='subject-review'){resolve({status:'pending',samePhoto:false,imageSimilarity:.2});return;}
     deferred.push({body,resolve});signal.addEventListener('abort',()=>reject(new DOMException('Stopped','AbortError')),{once:true});
   })});
-  await until(()=>deferred.length===1);
+  await until(()=>deferred.length===2);
   assert.equal(ui.get('progress-title').textContent,'正在核对商品主体');assert.equal(ui.get('progress-bar').getAttribute('aria-valuenow'),'0');assert.match(ui.get('progress-count').textContent,/0 \/ 2/);
   ui.get('pending-toggle').click();action(ui,'pending-results',pending[0].id,'same').click();
   assert.equal(ui.get('progress-percent').textContent,'50%');
-  deferred[0].resolve({status:'different',evidence:['TEST automatic difference']});await until(()=>deferred.length===2);
+  deferred[0].resolve({status:'different',evidence:['TEST automatic difference']});await until(()=>ui.saved?.items[0].subjectAttempt===1);
   assert.equal(ui.saved.items[0].status,'different');assert.equal(ui.saved.items[0].manualClassification.decision,'same');assert.equal(ui.get('exact-results').children.length,1);
   ui.get('cancel').click();await until(()=>ui.get('cancel').hidden);
   assert.equal(ui.get('progress-title').textContent,'核对已暂停');assert.equal(ui.get('progress-percent').textContent,'50%');assert.equal(ui.saved.items[1].subjectAttempt,undefined);
@@ -171,7 +211,7 @@ test('a new selection during an awaited diagnostic save cannot receive the previ
     chrome.storage.session.set=async data=>{await originalSet(data);if(data['temuMatch:1'].imageSearchDiagnostics?.observations?.length&&!release)await new Promise(resolve=>{release=resolve;});};
     tickProvider();await until(()=>release);
     ui.changeListeners[0]({'temuSelection:1':{newValue:{id:'new-during-old-save',windowId:1,imageUrl:image,title:'New reference'}}},'session');
-    await until(()=>ui.saved?.selection?.id==='new-during-old-save');release();await delay();await delay();
+    release();await until(()=>ui.saved?.selection?.id==='new-during-old-save');await delay();await delay();
     assert.equal(ui.saved.items.length,0);assert.equal(ui.get('exact-results').children.length,0);assert.equal(ui.get('pending-results').children.length,0);
   }finally{release?.();ui?.close();globalThis.setInterval=originalInterval;}
 });

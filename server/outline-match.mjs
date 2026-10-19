@@ -11,6 +11,6 @@ export async function compareForegroundOutlines(reference,candidate,options={}){
   const focusedA=await instanceReference(a,options.referenceText||'',options),focusedB=await instanceReference(b,options.candidateText||'',options);options.signal?.throwIfAborted();
   const key=createHash('sha256').update('subject-outline-v1').update(a.cropped).update(b.cropped).update(focusedA.attentionWeights).update(focusedB.attentionWeights).digest('hex');
   if(cache.has(key))return cache.get(key);
-  const result={...await comparePreparedOutlines(a.cropped,b.cropped,{templateAttention:focusedA.attentionWeights,candidateAttention:focusedB.attentionWeights}),attention:{reference:focusedA.attention,candidate:focusedB.attention}};
+  const result={...await comparePreparedOutlines(a.cropped,b.cropped,{templateAttention:focusedA.attentionWeights,candidateAttention:focusedB.attentionWeights},options),attention:{reference:focusedA.attention,candidate:focusedB.attention}};
   if(cache.size>=128)cache.delete(cache.keys().next().value);cache.set(key,result);return result;
 }

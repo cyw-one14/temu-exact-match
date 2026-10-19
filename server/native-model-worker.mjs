@@ -1,4 +1,3 @@
-import {parentPort} from 'node:worker_threads';
 import * as lib from '@huggingface/transformers';
 import {configureNative,nativeDevice,sessionOptions} from './native-runtime.mjs';
 import {SUBJECT_MODELS,ATTENTION_MODEL} from './native-model-specs.mjs';
@@ -10,12 +9,14 @@ function prepare(name,id){
   if(!Object.hasOwn(definitions,name))throw Error('Unknown pinned native model');
   if(!models.has(name)){
     const spec=definitions[name];
-    const task=spec.type.from_pretrained(spec.id,{revision:spec.revision,dtype:spec.dtype,device:spec.device,session_options:sessionOptions,progress_callback:event=>parentPort.postMessage({id,progress:{status:event.status,file:event.file,progress:event.progress}})});
+    const task=spec.type.from_pretrained(spec.id,{revision:spec.revision,dtype:spec.dtype,device:spec.device,session_options:sessionOptions,progress_callback:event=>process.send?.({id,progress:{status:event.status,file:event.file,progress:event.progress}})});
     models.set(name,task);task.catch(()=>models.delete(name));
   }
   return models.get(name);
 }
-parentPort.on('message',message=>{
+// Parent exit closes IPC, releasing every native session without an orphan.
+process.once('disconnect',()=>process.exit(0));
+process.on('message',message=>{
   const task=queue.then(async()=>{
     const model=await prepare(message.model,message.id);
     if(message.operation==='prepare')return null;
@@ -25,5 +26,5 @@ parentPort.on('message',message=>{
     return serializeTensors(output);
   });
   queue=task.catch(()=>{});
-  task.then(value=>parentPort.postMessage({id:message.id,ok:true,value}),error=>{console.error('Native model '+message.model+' '+message.operation+':',error.stack);parentPort.postMessage({id:message.id,ok:false,error:String(error.message||error).slice(0,300)});});
+  task.then(value=>process.send?.({id:message.id,ok:true,value}),error=>{console.error('Native model '+message.model+' '+message.operation+':',error.stack);process.send?.({id:message.id,ok:false,error:String(error.message||error).slice(0,300)});});
 });

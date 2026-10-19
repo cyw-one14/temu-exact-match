@@ -4,12 +4,14 @@ import {access} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {subjectDescriptor,instanceReference} from './subjects.mjs';
+import {WorkQueue} from './parallel-work.mjs';
 
 export const fastFeatureState={state:'idle',algorithm:'SIFT',message:'快速特征核验尚未启动'};
 const portable=new URL('../runtime/python/python.exe',import.meta.url);
 const python=process.env.TEMU_FEATURE_PYTHON||(existsSync(portable)?fileURLToPath(portable):fileURLToPath(new URL(process.platform==='win32'?'../.cache/feature-runtime/Scripts/python.exe':'../.cache/feature-runtime/bin/python',import.meta.url)));
 let child,readyPromise,nextId=0;
 const pending=new Map();
+const featureQueue=new WorkQueue(1);
 function fail(error){
   fastFeatureState.state='unavailable';fastFeatureState.message='快速特征核验不可用，使用原主体模型';
   for(const job of pending.values()){clearTimeout(job.timer);job.reject(error);}pending.clear();
@@ -37,18 +39,18 @@ export function prepareFastFeatures(){
   })().catch(error=>{fail(error);throw error;});
   return readyPromise;
 }
-export async function comparePreparedFeatures(template,candidate){
-  return featureJob({algorithm:'SIFT',template:template.toString('base64'),candidate:candidate.toString('base64')});
+export async function comparePreparedFeatures(template,candidate,options={}){
+  return featureJob({algorithm:'SIFT',template:template.toString('base64'),candidate:candidate.toString('base64')},options);
 }
-export async function compareFocusedFeatures(template,candidate){
-  return featureJob({operation:'focused-details',algorithm:'SIFT',template:template.cropped.toString('base64'),candidate:candidate.cropped.toString('base64'),templateAttention:template.attentionWeights,candidateAttention:candidate.attentionWeights});
+export async function compareFocusedFeatures(template,candidate,options={}){
+  return featureJob({operation:'focused-details',algorithm:'SIFT',template:template.cropped.toString('base64'),candidate:candidate.cropped.toString('base64'),templateAttention:template.attentionWeights,candidateAttention:candidate.attentionWeights},options);
 }
-export async function comparePreparedInstances(template,candidate,attention=null){
-  return featureJob({operation:'instance-match',template:template.toString('base64'),candidate:candidate.toString('base64'),...(attention?{templateAttention:attention}:{})});
+export async function comparePreparedInstances(template,candidate,attention=null,options={}){
+  return featureJob({operation:'instance-match',template:template.toString('base64'),candidate:candidate.toString('base64'),...(attention?{templateAttention:attention}:{})},options);
 }
-export async function compareReferenceShape(template,candidate){return featureJob({operation:'reference-shape',template:template.toString('base64'),candidate:candidate.toString('base64')});}
-export async function comparePreparedOutlines(template,candidate,attention={}){
-  return featureJob({operation:'outline-match',template:template.toString('base64'),candidate:candidate.toString('base64'),...attention});
+export async function compareReferenceShape(template,candidate,options={}){return featureJob({operation:'reference-shape',template:template.toString('base64'),candidate:candidate.toString('base64')},options);}
+export async function comparePreparedOutlines(template,candidate,attention={},options={}){
+  return featureJob({operation:'outline-match',template:template.toString('base64'),candidate:candidate.toString('base64'),...attention},options);
 }
 export async function instanceFeatureCompare(reference,candidate,referenceText='',options={}){
   options.signal?.throwIfAborted();
@@ -56,17 +58,22 @@ export async function instanceFeatureCompare(reference,candidate,referenceText='
   const descriptor=await subjectDescriptor(reference,options);
   if(!descriptor.valid)return {matched:false,reason:'参考主体不完整，无法核验商品实例'};
   const focused=await instanceReference(descriptor,referenceText,options);options.signal?.throwIfAborted();
-  return comparePreparedInstances(descriptor.cropped,candidate,focused.attentionWeights);
+  return comparePreparedInstances(descriptor.cropped,candidate,focused.attentionWeights,options);
 }
-async function featureJob(data){
+async function featureJob(data,{signal}={}){
+  signal?.throwIfAborted();
   await prepareFastFeatures();
+  signal?.throwIfAborted();
   if(fastFeatureState.state!=='ready')throw new Error('快速特征核验不可用');
-  return new Promise((resolve,reject)=>{
-    const id=++nextId;
-    const timer=setTimeout(()=>{child?.kill();fail(new Error('快速特征核验超时'));},15000);
-    pending.set(id,{resolve,reject,timer});
-    child.stdin.write(JSON.stringify({id,...data})+'\n');
-  });
+  return featureQueue.run(()=>{
+    if(fastFeatureState.state!=='ready')throw new Error('快速特征核验不可用');
+    return new Promise((resolve,reject)=>{
+      const id=++nextId;
+      const timer=setTimeout(()=>{child?.kill();fail(new Error('快速特征核验超时'));},15000);
+      pending.set(id,{resolve,reject,timer});
+      child.stdin.write(JSON.stringify({id,...data})+'\n');
+    });
+  },{signal}).then(value=>{signal?.throwIfAborted();return value;});
 }
 export async function fastFeatureCompare(reference,candidate,options={}){
   options.signal?.throwIfAborted();
@@ -75,7 +82,7 @@ export async function fastFeatureCompare(reference,candidate,options={}){
   if(fastFeatureState.state!=='ready')throw new Error('快速特征核验不可用');
   const descriptor=await subjectDescriptor(reference,options);options.signal?.throwIfAborted();
   if(!descriptor.valid||!descriptor.cropped)return {matched:false,reason:'参考主体不完整，使用原主体模型'};
-  return comparePreparedFeatures(descriptor.cropped,candidate);
+  return comparePreparedFeatures(descriptor.cropped,candidate,options);
 }
 export function closeFastFeatures(){child?.stdin.end();child?.kill();}
 process.once('exit',()=>child?.kill());

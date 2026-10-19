@@ -3,7 +3,7 @@ import {readFile,mkdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {normalizeImage,MAX_IMAGE_BYTES,sameProductImageAsset} from './images.mjs';
-import {imageBuffer,localCompare,comparePixels,pageCompare,serial} from './vision.mjs';
+import {imageBuffer,localCompare,comparePixels,pageCompare} from './vision.mjs';
 import {subjectState,prepareSubjects,subjectDescriptor,compareDescriptors,compareForegroundColors,prepareReferenceFeatures} from './subjects.mjs';
 import {fastFeatureState,prepareFastFeatures,closeFastFeatures,compareReferenceShape} from './fast-features.mjs';
 import {isProductMatch,listingSpecs} from '../shared/core.mjs';
@@ -12,7 +12,8 @@ import {groupedProductReview} from './match-flow.mjs';
 import {compareForegroundOutlines} from './outline-match.mjs';
 import {attentionState,prepareAttention} from './product-attention.mjs';
 import {recordSubjectResult} from './match-diagnostics.mjs';
-import {NATIVE_REVISION,nativeDevice,nativeThreads} from './native-runtime.mjs';
+import {NATIVE_REVISION,nativeDevice,nativeThreads,nativeWorkers} from './native-runtime.mjs';
+import {WorkQueue} from './parallel-work.mjs';
 import {PhotoCache} from './photo-cache.mjs';
 import {nativeModelHealth,closeNativeModels} from './native-model-client.mjs';
 
@@ -26,6 +27,7 @@ const extensionOrigin='chrome-extension://'+extensionId;
 const localOrigin='http://127.0.0.1:'+PORT;
 const imageCache=new Map();
 const photos=new PhotoCache(comparePixels),references=new Map();
+const reviews=new WorkQueue(nativeWorkers);
 function referenceBuffer(data){if(!references.has(data)){references.set(data,imageBuffer(data));if(references.size>2)references.delete(references.keys().next().value);}return references.get(data);}
 const digest=buffer=>createHash('sha256').update(buffer).digest('hex');
 let preparing;
@@ -95,7 +97,7 @@ export const server=http.createServer(async(req,res)=>{
     if(req.method==='GET' && path==='/health'){
       const model={...subjectState};if(model.state==='ready'&&(fastFeatureState.state!=='ready'||attentionState.state!=='ready')){model.state=fastFeatureState.state==='unavailable'||attentionState.state==='unavailable'?'error':'loading';model.message='正在准备本机细节与人体关注核验';}
       const worker=nativeModelHealth();if(worker.state==='error'){model.state='error';model.message=worker.message;}
-      res.end(JSON.stringify({ok:true,version:manifest.version,runtime:'native-local-v1',engineRevision:NATIVE_REVISION,installationId,acceleration:{device:nativeDevice,threads:nativeThreads,segmentation:'BiRefNet-lite512 fp32'},matchingPolicy:'title-groups-outline-v16',engine:'local',configured:true,model,productAttention:attentionState,fastFeatures:fastFeatureState,extensionId}));return;
+      res.end(JSON.stringify({ok:true,version:manifest.version,runtime:'native-local-v1',engineRevision:NATIVE_REVISION,installationId,acceleration:{device:nativeDevice,workers:nativeWorkers,threads:nativeThreads,auxiliaryThreads:nativeWorkers>1?1:nativeThreads,scheduling:'pipeline',segmentation:'BiRefNet-lite512 fp32'},matchingPolicy:'title-groups-outline-v16',engine:'local',configured:true,model,productAttention:attentionState,fastFeatures:fastFeatureState,extensionId}));return;
     }
     if((!accepted&&!sameOriginRead) || req.headers['x-temu-client']!=='exact-match')throw Object.assign(new Error('请从插件或本机设置页面访问'),{status:403});
     if(req.method==='GET' && path==='/config'){
@@ -112,7 +114,7 @@ export const server=http.createServer(async(req,res)=>{
       if(body.referenceImage){
         const reference=String(body.referenceImage).startsWith('data:')?referenceBuffer(body.referenceImage):(await downloadImage(body.referenceImage)).buffer;
         signal.throwIfAborted();
-        await serial(()=>prepareReferenceFeatures(reference,String(body.referenceTitle||'').slice(0,1000),{signal}));
+        await reviews.run(()=>prepareReferenceFeatures(reference,String(body.referenceTitle||'').slice(0,1000),{signal}),{signal});
       }
       res.end(JSON.stringify({ok:true}));return;
     }
@@ -142,23 +144,23 @@ export const server=http.createServer(async(req,res)=>{
         signal.throwIfAborted();
         let result=await pageCompare(reference,candidate.buffer,specs,text,imageOptions);
         if(!isProductMatch(result)){
-          result=await serial(()=>{signal.throwIfAborted();return localCompare(reference,candidate.buffer,specs,text,imageOptions);});
+          signal.throwIfAborted();result=await localCompare(reference,candidate.buffer,specs,text,imageOptions);
         }
         result.matchStage='subject-review';
         result.matchedImageUrl=body.imageUrl;
         const alternativeErrors=[];
         const gallery=['public-jsonld','bound-current-product-gallery'].includes(body.referenceImageSource)?[...new Set(Array.isArray(body.referenceImages)?body.referenceImages:[])].filter(url=>typeof url==='string'&&!sameProductImageAsset(url,body.referenceImageUrl)).slice(0,3):[];
         if(!isProductMatch(result)&&gallery.length){
-          const anchor=await serial(()=>subjectDescriptor(reference,{signal}));
+          const anchor=await subjectDescriptor(reference,{signal});
           for(const imageUrl of gallery)try{
             signal.throwIfAborted();
-            const photo=await downloadImage(imageUrl),descriptor=await serial(()=>subjectDescriptor(photo.buffer,{signal}));
+            const photo=await downloadImage(imageUrl),descriptor=await subjectDescriptor(photo.buffer,{signal});
             const compatibility=compareDescriptors(anchor,descriptor);
             // Same-product provenance alone cannot introduce a different color,
             // accessory, category or unrelated image as a reference template.
             if(!compatibility.valid||compatibility.subjectSimilarity<.75||compatibility.colorSimilarity<.88)continue;
-            const shape=await compareReferenceShape(anchor.cropped,descriptor.cropped);if(!shape.compatible)continue;
-            const evaluated=await serial(()=>{signal.throwIfAborted();return localCompare(photo.buffer,candidate.buffer,specs,text,{subjectMatching:true,referenceText:imageOptions.referenceText,signal});});
+            const shape=await compareReferenceShape(anchor.cropped,descriptor.cropped,{signal});if(!shape.compatible)continue;
+            signal.throwIfAborted();const evaluated=await localCompare(photo.buffer,candidate.buffer,specs,text,{subjectMatching:true,referenceText:imageOptions.referenceText,signal});
             if(isProductMatch(evaluated)){result={...evaluated,matchStage:'subject-review',matchedImageUrl:body.imageUrl,matchedReferenceImageUrl:imageUrl,referenceEvidence:body.referenceImageSource,evidence:[...evaluated.evidence,'使用原商品当前页所属且与主图外观/颜色相容的图片补充参考；未打开商品页面，具体 SKU 未绑定']};break;}
           }catch(error){signal.throwIfAborted();alternativeErrors.push('参考图片：'+error.message);}
         }
@@ -167,7 +169,7 @@ export const server=http.createServer(async(req,res)=>{
             signal.throwIfAborted();
             const alternative=await downloadImage(imageUrl);
             const options={sameAsset:sameProductImageAsset(body.referenceImageUrl,imageUrl),subjectMatching:true,signal};
-            const evaluated=await serial(()=>{signal.throwIfAborted();return localCompare(reference,alternative.buffer,specs,text,options);});
+            signal.throwIfAborted();const evaluated=await localCompare(reference,alternative.buffer,specs,text,options);
             if(isProductMatch(evaluated)||(evaluated.subject?.subjectSimilarity||0)>(result.subject?.subjectSimilarity||0))result={...evaluated,matchStage:'subject-review',matchedImageUrl:imageUrl};
             if(isProductMatch(result))break;
           }catch(error){signal.throwIfAborted();alternativeErrors.push(error.message);}
@@ -175,13 +177,13 @@ export const server=http.createServer(async(req,res)=>{
         if(alternativeErrors.length)result.alternativeErrors=alternativeErrors;
         return result;
       };
-      const result=await groupedProductReview({titleEvidence,review,referenceSpecs:specs,candidateText:text,colors:async reviewed=>{
+      const result=await reviews.run(()=>groupedProductReview({titleEvidence,review,referenceSpecs:specs,candidateText:text,colors:async reviewed=>{
         const selected=reviewed.matchedImageUrl===body.imageUrl?candidate:await downloadImage(reviewed.matchedImageUrl);
-        return serial(()=>{signal.throwIfAborted();return compareForegroundColors(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text,signal});});
+        signal.throwIfAborted();return compareForegroundColors(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text,signal});
       },outlines:async reviewed=>{
         const selected=reviewed.matchedImageUrl===body.imageUrl?candidate:await downloadImage(reviewed.matchedImageUrl);
-        return serial(()=>{signal.throwIfAborted();return compareForegroundOutlines(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text,signal});});
-      }});
+        signal.throwIfAborted();return compareForegroundOutlines(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text,signal});
+      }}),{signal});
       if(nativeModelHealth().state==='error')throw Error('本机计算线程中断，后台正在自动恢复');
       signal.throwIfAborted();if(PORT===43187)await recordSubjectResult(body,reference,candidate.buffer,result);
       res.end(JSON.stringify({ok:true,comparison:result}));return;
@@ -201,7 +203,7 @@ if(process.argv[1]===fileURLToPath(import.meta.url)){
   if(process.env.TEMU_WATCHDOG==='1'){
     // A supervisor that is ended on its own must not leave an unsupervised
     // server occupying the port and blocking the colleague's desktop launcher.
-    const parentEnded=()=>{closeFastFeatures();server.closeAllConnections();server.close();process.exit(0);};
+    const parentEnded=()=>{closeFastFeatures();closeNativeModels();server.closeAllConnections();server.close();process.exit(0);};
     process.stdin.once('end',parentEnded);process.stdin.once('error',parentEnded);process.stdin.resume();
   }
   await mkdir(new URL('.cache/',ROOT),{recursive:true});

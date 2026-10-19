@@ -22,3 +22,14 @@ test('tensor cache enforces LRU/byte limits and retries failed inference without
   await assert.rejects(cache.get('failure',()=>{throw Error('synthetic inference failure');}),/inference failure/);
   assert.equal((await cache.get('failure',()=>output(5))).last_hidden_state.data[0],5);
 });
+
+test('feature tensor sharing survives one cancellation, but all cancellations release queued inference without poisoning a new consumer',async()=>{
+  const cache=new FeatureOutputCache(),a=new AbortController();let release,signal,calls=0;
+  const compute=internal=>{calls++;signal=internal;return new Promise(resolve=>{release=resolve;});};
+  const first=cache.get('shared',compute,{signal:a.signal}),second=cache.get('shared',compute);await Promise.resolve();
+  const rejected=assert.rejects(first,{name:'AbortError'});a.abort();await rejected;assert.equal(signal.aborted,false);release(output(1));await second;assert.equal(calls,1);
+  const b=new AbortController(),old=cache.get('replacement',compute,{signal:b.signal});await Promise.resolve();const oldRelease=release;
+  const oldRejected=assert.rejects(old,{name:'AbortError'});b.abort();await oldRejected;assert.equal(signal.aborted,true);
+  const next=cache.get('replacement',compute);await Promise.resolve();const nextRelease=release;oldRelease(output(2));nextRelease(output(3));
+  assert.equal((await next).last_hidden_state.data[0],3);assert.equal((await cache.get('replacement',()=>assert.fail())).last_hidden_state.data[0],3);
+});

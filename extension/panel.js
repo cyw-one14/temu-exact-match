@@ -28,6 +28,7 @@ let resultsCollapsed=false,previewAnchor=null,previewPointer=null;
 let manualRecord=null,manualWarning='',manualReadEpoch=0;
 const pendingManual=new Map();
 const requestControllers=new Set();
+let saveQueue=Promise.resolve();
 let referenceWarmup=null;
 const tempTabs=new Set();
 
@@ -90,19 +91,22 @@ function setBusy(value){
   $('cancel').hidden=!value;
 }
 function checkCancelled(){if(cancelled)throw new Error('本次检索已停止');}
-async function api(path,body){
+async function api(path,body,{signal}={}){
   checkCancelled();
+  signal?.throwIfAborted();
   const controller=new AbortController();requestControllers.add(controller);
+  const abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});
   const timeout=setTimeout(()=>controller.abort(),180_000);
   try{
     const result=await engineRequest(path,body,{signal:controller.signal});
     if(result.ok===false)throw new Error(result.error||'本机识别返回错误');
     return result;
   }catch(error){
+    if(signal?.aborted)throw signal.reason;
     if(error.name==='AbortError')throw new Error(cancelled?'本次检索已停止':'本机识别超时，请稍后重试');
     if(error instanceof TypeError)throw new Error('本机识别初始化失败，请重新打开侧栏后重试');
     throw error;
-  }finally{clearTimeout(timeout);requestControllers.delete(controller);}
+  }finally{clearTimeout(timeout);signal?.removeEventListener('abort',abort);requestControllers.delete(controller);}
 }
 function prefetchImages(items){
   const images=items.slice(0,3).map(item=>item.imageUrl).filter(url=>officialImage(url)||/^data:image\/(?:png|jpeg|webp);base64,/.test(url));
@@ -123,7 +127,8 @@ function warmReference(){
 }
 async function save(){
   state.referenceSpecs=getSpecs();
-  try{await chrome.storage.session.set({[stateKey]:state});storageWarning='';}catch{storageWarning='浏览器会话存储空间不足：数据仍在当前侧栏内，请保持侧栏打开并导出 JSON。';}
+  const current=state,key=stateKey,storage=chrome.storage.session,task=saveQueue.then(()=>storage.set({[key]:current}));saveQueue=task.catch(()=>{});
+  try{await task;storageWarning='';}catch{storageWarning='浏览器会话存储空间不足：数据仍在当前侧栏内，请保持侧栏打开并导出 JSON。';}
   if(storageWarning){$('collection-section').hidden=false;$('collection-status').textContent=collectionText(state.collection)+' '+storageWarning;status(storageWarning,true);}
 }
 function applyManualMemory(){
@@ -869,26 +874,34 @@ async function compareItems({automatic=false}={}){
   }
   if(automatic)review=state.items.filter(needsSubjectReview);
   review.sort(titleOrder);
-  let reviewed=0;
-  for(const item of review){
+  let reviewed=0,reviewCursor=0,inFlight=0,reviewError;
+  const batch=new AbortController();
+  await Promise.all(Array.from({length:Math.min(3,review.length)},async()=>{
+  while(reviewCursor<review.length&&!reviewError){
     if(automatic&&state.collection?.status==='running'){requestAutoCompare();return;}
-    checkCancelled();if(manualDecision(item))continue;reviewed++;
-    prefetchImages(review.slice(reviewed,reviewed+3));
-    status('后续图像核对 '+reviewed+' / '+review.length+'：'+item.title.slice(0,55));
+    try{checkCancelled();}catch(error){reviewError??=error;batch.abort(error);return;}
+    const item=review[reviewCursor++];if(manualDecision(item)){reviewed++;continue;}inFlight++;
+    prefetchImages(review.slice(reviewCursor,reviewCursor+3));
+    status('三路核对 · 已完成 '+reviewed+' / '+review.length+' · 正在处理 '+inFlight+' 条');
     delete item.serviceInterrupted;
-    setActivity('subject','本批 '+reviewed+' / '+review.length+' · '+item.title.slice(0,38));
+    setActivity('subject','三路核对 · 本批已完成 '+reviewed+' / '+review.length+' · 正在处理 '+inFlight+' 条');
+    let completed=false;
     try{
-      const result=await api('/compare',{phase:'subject-review',candidateId:item.id,referenceImage:state.referenceImage,referenceImageUrl:state.selection?.imageUrl,referenceTitle,candidateTitle:item.title,referenceImages:['public-jsonld','bound-current-product-gallery'].includes(state.referenceContext?.imageSource)?state.referenceContext.referenceImages||[]:[],referenceImageSource:state.referenceContext?.imageSource||'',referenceSpecs:state.referenceSpecs,imageUrl:item.imageUrl,candidateImages:item.verifiedImages||[],candidateText:comparisonText(item)});
+      const result=await api('/compare',{phase:'subject-review',candidateId:item.id,referenceImage:state.referenceImage,referenceImageUrl:state.selection?.imageUrl,referenceTitle,candidateTitle:item.title,referenceImages:['public-jsonld','bound-current-product-gallery'].includes(state.referenceContext?.imageSource)?state.referenceContext.referenceImages||[]:[],referenceImageSource:state.referenceContext?.imageSource||'',referenceSpecs:state.referenceSpecs,imageUrl:item.imageUrl,candidateImages:item.verifiedImages||[],candidateText:comparisonText(item)},{signal:batch.signal});
+      checkCancelled();batch.signal.throwIfAborted();
       delete item.outlineMatch;Object.assign(item,result.comparison,{matchSource:'automated'});
       if((item.variantAmbiguous||state.referenceContext?.variantAmbiguous)&&item.status==='exact'){item.status='visual-match';item.missing=['多规格商品，具体 SKU / 对应价格未绑定'];}
+      completed=true;
     }catch(error){
-      if(cancelled)throw error;
-      if(error.serviceUnavailable){item.serviceInterrupted=true;delete item.subjectAttempt;throw error;}
-      failures++;item.missing=[...(item.missing||[]),'后续主体核对失败：'+error.message];
-      if(error.message.includes('本机识别初始化失败')){render();await save();throw error;}
-    }finally{if(!cancelled&&!item.serviceInterrupted)item.subjectAttempt=state.matchRevision;}
+      if(cancelled||batch.signal.aborted||error.serviceUnavailable||error.message.includes('本机识别初始化失败')){
+        item.serviceInterrupted=true;delete item.subjectAttempt;reviewError??=error;batch.abort(reviewError);
+      }else{failures++;item.missing=[...(item.missing||[]),'后续主体核对失败：'+error.message];completed=true;}
+    }finally{inFlight--;if(completed&&!cancelled){item.subjectAttempt=state.matchRevision;reviewed++;}}
+    setActivity('subject','三路核对 · 本批已完成 '+reviewed+' / '+review.length+' · 正在处理 '+inFlight+' 条');
     render();await save();
   }
+  }));
+  if(reviewError)throw reviewError;
   const exact=state.items.filter(isProductMatch).length;
   const different=state.items.filter(isDifferent).length,unconfirmed=state.items.length-exact-different;
   const colorRuleCount=state.items.filter(item=>item.status==='rule-match').length;
@@ -981,7 +994,7 @@ $('read-provider').addEventListener('click',()=>{if(busy){
 $('stop-provider').addEventListener('click',()=>{pauseCurrentCollection();$('provider-status').textContent='已暂停采集。已抓取商品会自动核对，可继续采集后续结果。';});
 $('stop-collection').addEventListener('click',()=>pauseCurrentCollection());
 $('resume-collection').addEventListener('click',()=>{if(!state.collection)return;if(state.items.length>=COLLECTION_LIMIT){pauseCurrentCollection('limit-reached');return;}resumeCollection(state.collection);autoPaused=false;render();save();watchProvider();});
-window.addEventListener('pagehide',()=>{removeEngineConnection();closeImagePreview();closeEngine();autoPaused=true;if(state.collection?.status==='running')pauseCollection(state.collection,'panel-closed');stopProviderWatch();save();if(autoTimer)clearTimeout(autoTimer);if(healthTimer)clearInterval(healthTimer);});
+window.addEventListener('pagehide',()=>{cancelled=true;for(const controller of requestControllers)controller.abort();removeEngineConnection();closeImagePreview();closeEngine();autoPaused=true;if(state.collection?.status==='running')pauseCollection(state.collection,'panel-closed');stopProviderWatch();save();if(autoTimer)clearTimeout(autoTimer);if(healthTimer)clearInterval(healthTimer);});
 $('add-keyword').addEventListener('click',()=>{addKeyword($('manual-keyword').value);$('manual-keyword').value='';renderKeywords();save();});
 $('manual-keyword').addEventListener('keydown',event=>{if(event.key==='Enter')$('add-keyword').click();});
 $('cancel').addEventListener('click',()=>{cancelled=true;autoPaused=true;autoPending=false;waitingForService=false;$('service-help').hidden=true;pauseCurrentCollection();for(const controller of requestControllers)controller.abort();closeEngine();status('正在停止本次检索…');});
@@ -1008,7 +1021,7 @@ for(const button of document.querySelectorAll('[data-result-tab]')){
 }
 $('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('本机助手已就绪，可以查找商品。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.4.3',recognitionRuntime:'native-local-v1',engineRevision:ENGINE_REVISION,generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||state.imageSearchDiagnostics?.submittedInput||null,imageSearchDiagnostics:state.imageSearchDiagnostics,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.4.4',recognitionRuntime:'native-local-v1',engineRevision:ENGINE_REVISION,generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||state.imageSearchDiagnostics?.submittedInput||null,imageSearchDiagnostics:state.imageSearchDiagnostics,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });

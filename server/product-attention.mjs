@@ -89,16 +89,20 @@ export function colorAttention(rgba,human,product,width=224,height=224){
   return {weights,summary};
 }
 
-export async function identifyAttention(cropped,hint){
+export async function identifyAttention(cropped,hint,{signal}={}){
+  signal?.throwIfAborted();
   const {data,info}=await sharp(cropped).ensureAlpha().raw().toBuffer({resolveWithObject:true});
+  signal?.throwIfAborted();
   let possible=0;
   for(let i=0;i<info.width*info.height;i++)if(data[i*4+3]>=160&&skinRange(data[i*4],data[i*4+1],data[i*4+2]))possible++;
   if(possible<40)return {weights:Buffer.alloc(info.width*info.height,255),summary:{revision:ATTENTION_REVISION,status:'preserved',applied:false,reducedFraction:0,reason:'没有足够颜色线索，保留原区域参与核对'}};
   const {tokenizer,processor,model,RawImage}=await prepareAttention();
+  signal?.throwIfAborted();
   const neutral=await sharp(cropped).flatten({background:'#fff'}).png().toBuffer();
   const prompts=[hint,'a human hand','a human arm','a human face','a glove'];
   const inputs={...tokenizer(prompts,{padding:true,truncation:true}),...await processor(await RawImage.fromBlob(new Blob([neutral])))};
-  const output=await model(inputs),probs=output.logits.sigmoid().mul(255).to('uint8'),maps=[];
+  signal?.throwIfAborted();const output=await model(inputs,{signal});signal?.throwIfAborted();
+  const probs=output.logits.sigmoid().mul(255).to('uint8'),maps=[];
   for(let i=0;i<prompts.length;i++){const map=await RawImage.fromTensor(probs[i].unsqueeze(0)).resize(info.width,info.height);maps.push(map.data);}
   const human=new Uint8Array(info.width*info.height),product=new Uint8Array(human.length);
   for(let i=0;i<human.length;i++){human[i]=Math.max(maps[1][i],maps[2][i],maps[3][i]);product[i]=Math.max(maps[0][i],maps[4][i]);}

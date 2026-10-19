@@ -3,14 +3,6 @@ import { localSpecChecks, decideExact,decideProductMatch } from '../shared/core.
 import {compareSubjects} from './subjects.mjs';
 import {fastFeatureCompare,instanceFeatureCompare} from './fast-features.mjs';
 
-let queue = Promise.resolve();
-
-export function serial(task) {
-  const run = queue.then(task,task);
-  queue = run.catch(()=>{});
-  return run;
-}
-
 export function imageBuffer(dataUrl) {
   if (typeof dataUrl !== 'string' || dataUrl.length > 12_000_000) throw new Error('图片过大，请使用 8 MB 以下图片');
   const match = dataUrl.match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);

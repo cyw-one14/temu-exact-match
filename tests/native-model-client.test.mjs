@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {EventEmitter} from 'node:events';
 import {Worker} from 'node:worker_threads';import http from 'node:http';
-import {NativeModelRuntime} from '../server/native-model-client.mjs';
+import {NativeModelRuntime,NativeModelPool,createNativeProcess} from '../server/native-model-client.mjs';
 import {serializeTensors,deserializeTensors} from '../server/native-tensors.mjs';
 class FakeWorker extends EventEmitter{messages=[];ref(){}unref(){}postMessage(message){this.messages.push(message);}terminate(){this.terminated=true;return Promise.resolve();}}
 test('tensor serialization retains image-processor size metadata and optional outputs',()=>{
@@ -38,4 +38,38 @@ test('a synchronous busy model thread leaves the main HTTP event loop responsive
     for(let i=0;i<3;i++){const response=await fetch('http://127.0.0.1:'+server.address().port,{signal:AbortSignal.timeout(600)});assert.equal(await response.text(),'ready');}
     assert.equal(completed,false);await task;
   }finally{await runtime.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});
+
+test('production advanced IPC runs three isolated native lanes simultaneously and preserves metadata/tensors',async()=>{
+  const children=[],pool=new NativeModelPool({size:3,createRuntime:()=>new NativeModelRuntime({createWorker:()=>{const child=createNativeProcess(new URL('./fixtures/native-ipc.mjs',import.meta.url));children.push(child);return child;}})});
+  const Tensor=class{constructor(type,data,dims){Object.assign(this,{type,data,dims});}};
+  try{
+    const model=await pool.model('segment',Tensor),features=await pool.model('features',Tensor),attention=await pool.model('attention',Tensor);
+    const results=await Promise.all([model,features,attention].map((run,i)=>run({value:new Tensor('int64',new BigInt64Array([BigInt(i)]),[1]),sizes:[[224+i,224]],optional:undefined})));
+    assert.equal(new Set(results.map(row=>row.pid)).size,3);assert.ok(Math.max(...results.map(row=>row.started))<Math.min(...results.map(row=>row.finished)),'three synchronous operations actually overlap');
+    results.forEach((row,i)=>{assert.equal(row.value.data[0],BigInt(i));assert.deepEqual(row.sizes,[[224+i,224]]);assert.equal(row.optional,undefined);});
+    assert.equal((await features({})).pid,results[1].pid,'each model reuses its own stage process');
+  }finally{await pool.close();assert.ok(children.every(child=>child.exitCode!==null||child.signalCode!==null),'all child processes exit on close');}
+});
+
+test('a fatal native lane rejects queued work and exposes pool failure for the watchdog',async()=>{
+  const workers=[],pool=new NativeModelPool({size:3,createRuntime:()=>new NativeModelRuntime({createWorker:()=>{const worker=new FakeWorker();workers.push(worker);return worker;}})});
+  try{
+    const tasks=['segment','features','attention','segment'].map((model,i)=>pool.run(model,{i}));const settled=Promise.allSettled(tasks);
+    workers[0].emit('error',Error('TEST failed native lane'));
+    workers[1].emit('message',{id:1,ok:true,value:'other'});workers[2].emit('message',{id:1,ok:true,value:'other'});
+    const rows=await settled;assert.equal(rows.filter(row=>row.status==='rejected').length,2);assert.equal(pool.state.state,'error');await assert.rejects(pool.run('features',{}));
+  }finally{await pool.close();}
+});
+
+test('cancelled native jobs leave the stage queue without entering a graph, while an entered graph may finish',async()=>{
+  const worker=new FakeWorker(),pool=new NativeModelPool({size:1,createRuntime:()=>new NativeModelRuntime({createWorker:()=>worker})});
+  const active=new AbortController(),queued=new AbortController();
+  try{
+    const first=pool.run('segment',{image:'first'},{signal:active.signal}),second=pool.run('segment',{image:'cancelled'},{signal:queued.signal});
+    const secondRejected=assert.rejects(second,{name:'AbortError'});queued.abort();await secondRejected;assert.equal(worker.messages.length,1);
+    const firstRejected=assert.rejects(first,{name:'AbortError'});active.abort();assert.equal(worker.terminated,undefined);
+    worker.emit('message',{id:1,ok:true,value:'finished entered graph'});await firstRejected;assert.equal(worker.messages.length,1);assert.notEqual(pool.state.state,'error');
+    const next=pool.run('segment',{image:'new query'});worker.emit('message',{id:2,ok:true,value:'new result'});assert.equal(await next,'new result');
+  }finally{await pool.close();}
 });
