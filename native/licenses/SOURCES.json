@@ -1,12 +1,7 @@
 {
-  "Pyodide-LICENSE": "https://raw.githubusercontent.com/pyodide/pyodide/0.28.3/LICENSE",
-  "Python-LICENSE": "https://raw.githubusercontent.com/python/cpython/v3.13.2/LICENSE",
-  "NumPy-LICENSE": "https://raw.githubusercontent.com/numpy/numpy/v2.2.5/LICENSE.txt",
-  "OpenCV-LICENSE": "https://raw.githubusercontent.com/opencv/opencv/4.11.0/LICENSE",
   "BiRefNet-LICENSE": "https://raw.githubusercontent.com/ZhengPeng7/BiRefNet/main/LICENSE",
   "DINOv2-LICENSE": "https://raw.githubusercontent.com/facebookresearch/dinov2/main/LICENSE",
   "CLIPSeg-LICENSE": "https://raw.githubusercontent.com/timojl/clipseg/master/LICENSE",
-  "BiRefNet-model-card.txt": "https://huggingface.co/onnx-community/BiRefNet_lite-ONNX/raw/de15b22ba131738a16dff04aab8bdf8dc32e3ac1/README.md",
   "DINOv2-model-card.txt": "https://huggingface.co/Xenova/dinov2-small/raw/c2bb04a51fab207c420665f1946016107bffc701/README.md",
   "CLIPSeg-model-card.txt": "https://huggingface.co/Xenova/clipseg-rd64-refined/raw/924dc94f85f58739f353f94258b33bc47eae4862/README.md",
   "ONNX-Runtime-LICENSE": "https://raw.githubusercontent.com/microsoft/onnxruntime/89f8206ba4/LICENSE",

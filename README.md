@@ -1,12 +1,12 @@
 # TEMU 完全同款助手
 
-当前版本 **0.4.1，本机后台识别版**。按2026-10-19用户要求，从纯浏览器改为本机后台以优化主体核对；安装一次后随Windows登录自动启动。同事无需另装Node或Python。
+当前版本 **0.4.2，本机后台识别版**。按2026-10-19用户要求，从纯浏览器改为本机后台以优化主体核对；安装一次后随Windows登录自动启动。同事无需另装Node或Python。
 
 由Codex和Qoder共同维护，[GitHub私有仓库](https://github.com/cyw-one14/temu-exact-match)。维护先读AGENTS.md、VALIDATION.md并检查git status，保留其他维护者改动。
 
 ## 安装与使用
 
-1. 完整解压 dist/temu-exact-match-0.4.1-windows-x64.zip，双击 Install-TEMU.cmd。
+1. 完整解压 dist/temu-exact-match-0.4.2-windows-x64.zip，双击 Install-TEMU.cmd。
 2. 等待安装完成，在自动打开的本机助手页点击“复制扩展目录”。固定安装位置为当前用户 %LOCALAPPDATA%\TemuExactMatch。
 3. Chrome/Edge扩展管理页开启“开发者模式”，加载刚复制的extension目录，并固定插件。
 4. 刷新TEMU首页、列表或详情页，点击商品图片右上角“查同款”。需要第三方登录/验证时点“查看图搜页”。
@@ -75,9 +75,11 @@ TEMU 图片地址可能以 `.jpg` 结尾，但通过 `format/avif` 返回 AVIF �
 - “畅销同款商品关键词”指销量领先商品的页面关键词或标题原词，不代表这些词自身的搜索量、销量贡献或转化率最高。未确认同款或没有页面销量时，不输出推荐词。
 
 
-## 浏览器识别与验证范围
+## 本机识别与验证范围
 
-主体分割采用同系列BiRefNet-lite的512×512浏览器适配导出（固定版本962e679），DINOv2-small及CLIPSeg保留原固定版本；WASM使用fp32分割、q8特征/人体关注。原1024分割导出在浏览器实际推理时失败，fp16图形加速样本出现空掩码，均未作为交付方案。输入分辨率、Canvas图像缩放和OpenCV版本与旧Node服务存在差异，**不保证逐像素或逐商品判定完全相同**；未放宽原主体、颜色或轮廓阈值。缓存单独使用带模型/预处理版本的IndexedDB，不能套用旧Node特征。
+主体分割采用固定BiRefNet-lite512 fp32导出962e679，DINOv2-small及CLIPSeg保留原固定版本，在本机ONNX Runtime运行。模型仅从本地加载，特征缓存按原生引擎版本与设备隔离。主体、颜色和轮廓门槛保持原规则；预处理与运行环境变化可能影响输出，不承诺与历史浏览器版逐图一致。
+
+0.4.2清理了停用的浏览器Worker、WASM适配层及构建脚本，以及已被真实标题原词流程取代的图片生成关键词/云识别入口。当前模型及许可证移至native目录，正常构建无需准备旧浏览器资源。历史方案和验证记录保留，旧源码可从Git历史查询；当前识别缓存、原始测试图片和长期人工分类不作为废弃文件删除。
 
 验证范围和实际结果见[VALIDATION.md](VALIDATION.md)。自动化测试及少量图片链路通过不表示真实识别准确率、跨拍摄角度效果或全站覆盖；用户账号下第三方完整查询仍待现场验证。
 
@@ -92,6 +94,6 @@ node scripts/package.mjs
 python scripts/verify-package.py
 ```
 
-首次先执行node scripts/prepare-browser-assets.mjs准备固定模型及许可证来源资产。package脚本同步shared规则、准备固定原生运行环境与依赖、流式生成完整Windows包及轻量扩展包。验证检查逐文件摘要、模型固定SHA-256、源码一致性、稳定扩展ID与CSP。pnpm build:browser仅保留开发对比用途。本机请求应绕过代理；外部资源准备可按已有网络配置使用`NODE_USE_ENV_PROXY=1`。
+package脚本自动准备native/model-lock.json中固定的模型及原生运行环境，校验SHA-256后复用；同步shared规则并生成完整Windows包及轻量扩展包。可单独运行node scripts/prepare-models.mjs准备模型。验证检查逐文件摘要、模型固定SHA-256、源码一致性、稳定扩展ID与CSP。本机请求应绕过代理；外部资源准备可按已有网络配置使用`NODE_USE_ENV_PROXY=1`。
 
-许可证与来源随包置于licenses，固定模型摘要见browser/model-lock.json。源码维护约定见AGENTS.md；结果记录后提交并推送origin/main。当前生产后台启动/自启仍走scripts/service-control.mjs与service-autostart.mjs；不要同时运行多个目录占用43187。
+许可证与来源随包置于licenses，源码位于native/licenses，固定模型摘要见native/model-lock.json。源码维护约定见AGENTS.md；结果记录后提交并推送origin/main。当前生产后台启动/自启仍走scripts/service-control.mjs与service-autostart.mjs；不要同时运行多个目录占用43187。

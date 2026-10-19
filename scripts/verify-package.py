@@ -47,7 +47,7 @@ with ZipFile(archive) as package:
         assert package.read('server/' + name) == (root / 'server' / name).read_bytes()
     for name in ['service-runtime.mjs', 'service-control.mjs', 'service-autostart.mjs', 'service-shortcut.mjs', 'service-watchdog.mjs', 'watchdog-policy.mjs', 'install-local.mjs']:
         assert package.read('scripts/' + name) == (root / 'scripts' / name).read_bytes()
-    for entry in json.loads((root / 'browser/model-lock.json').read_text(encoding='utf-8'))['files']:
+    for entry in json.loads((root / 'native/model-lock.json').read_text(encoding='utf-8'))['files']:
         name = 'runtime/' + entry['path']
         assert package.getinfo(name).file_size == entry['bytes']
         assert digest_entry(package, name) == entry['sha256'], name
@@ -58,6 +58,8 @@ with ZipFile(archive) as package:
     assert b'local-engine-client.mjs' in package.read('extension/panel.js')
     assert b'local-engine-client.mjs' in package.read('extension/settings.js')
     assert package.read('native/runtime-lock.json') == (root / 'native/runtime-lock.json').read_bytes()
+    assert package.read('native/model-lock.json') == (root / 'native/model-lock.json').read_bytes()
+    assert not any(n.startswith('browser/') for n in names), 'retired browser engine must not be shipped'
     assert not any(n.startswith('node_modules/onnxruntime-node/bin/') and not n.startswith('node_modules/onnxruntime-node/bin/napi-v3/win32/x64/') for n in names)
     assert b'studioludens/birefnet-lite-512' in package.read('server/subjects.mjs')
 with ZipFile(root / 'dist/temu-exact-match-extension.zip') as light:

@@ -1,5 +1,4 @@
 import sharp from 'sharp';
-import {fileURLToPath} from 'node:url';
 import {configureNative,sessionOptions} from './native-runtime.mjs';
 
 export const ATTENTION_REVISION='semantic-color-v1';
@@ -12,7 +11,6 @@ export function prepareAttention(){
   loading=(async()=>{
     const lib=await import('@huggingface/transformers');
     configureNative(lib);
-    lib.env.cacheDir=fileURLToPath(new URL('../.cache/models/',import.meta.url));
     const options={revision:ATTENTION_MODEL.revision};
     const tokenizer=await lib.AutoTokenizer.from_pretrained(ATTENTION_MODEL.id,options);
     const processor=await lib.AutoProcessor.from_pretrained(ATTENTION_MODEL.id,options);

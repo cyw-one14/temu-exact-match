@@ -14,7 +14,7 @@ test('local service rejects requests from arbitrary web pages',async()=>{
   assert.equal(response.status,403);
 });
 test('only the paired extension origin receives CORS access',async()=>{
-  const response=await fetch(base+'/profile',{method:'OPTIONS',headers:{Origin:origin,'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'content-type,x-temu-client'}});
+  const response=await fetch(base+'/compare',{method:'OPTIONS',headers:{Origin:origin,'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'content-type,x-temu-client'}});
   assert.equal(response.status,204);assert.equal(response.headers.get('access-control-allow-origin'),origin);
 });
 test('image fetches are constrained to HTTPS TEMU-owned domains',()=>{
@@ -27,12 +27,20 @@ test('the selected-image endpoint cannot download arbitrary URLs',async()=>{
   const response=await fetch(base+'/image',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Temu-Client':'exact-match'},body:JSON.stringify({imageUrl:'http://127.0.0.1/admin'})});assert.equal(response.status,400);assert.match((await response.json()).error,/官方商品图片/);
 });
 test('invalid images do not invoke inference',async()=>{
-  const response=await fetch(base+'/profile',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Temu-Client':'exact-match'},body:JSON.stringify({referenceImage:'data:text/html;base64,WA=='})});
+  const response=await fetch(base+'/compare',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Temu-Client':'exact-match'},body:JSON.stringify({referenceImage:'data:text/html;base64,WA==',imageUrl:'https://img.kwcdn.com/not-requested.jpg'})});
   assert.equal(response.status,400);assert.equal((await response.json()).ok,false);
 });
 test('provider configuration never returns saved API key values',async()=>{
   const response=await fetch(base+'/config',{headers:{Origin:origin,'X-Temu-Client':'exact-match'}});
   assert.equal(response.status,200);const config=await response.json();assert.equal(Object.hasOwn(config,'apiKey'),false);
+});
+test('retired generated-keyword and cloud configuration endpoints cannot invoke models or write settings',async()=>{
+  const before=JSON.stringify(subjectState);
+  for(const route of ['/profile','/config']){
+    const response=await fetch(base+route,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Temu-Client':'exact-match'},body:JSON.stringify({engine:'cloud',apiKey:'synthetic-unused-test-value'})});
+    assert.equal(response.status,404);
+  }
+  assert.equal(JSON.stringify(subjectState),before);
 });
 test('the local setup page can read non-secret configuration using browser same-origin metadata',async()=>{
   const response=await fetch(base+'/config',{headers:{'Sec-Fetch-Site':'same-origin','X-Temu-Client':'exact-match'}});

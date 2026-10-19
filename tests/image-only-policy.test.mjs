@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {decideProductMatch} from '../shared/core.mjs';
-import {cloudImageComparison} from '../server/vision.mjs';
 const reference={brand:'Acme',model:'A12',material:'silicone',dimensions:'500ml',quantity:'1pc'};
 const listing='Brand: Other Brand; Model: B77; Material: wood; Capacity: 1L; Quantity: 2pcs';
 const checks=Object.keys(reference).map(key=>({key,status:'different',candidateValue:'different page value',evidence:'listing text'}));
@@ -17,14 +16,4 @@ test('text agreement cannot confirm an uncertain image and text conflict cannot 
   assert.equal(decideProductMatch({visual:'uncertain',checks,differences:['Different listed model']},reference,listing).status,'pending');
   assert.equal(decideProductMatch({visual:'uncertain',checks:[],differences:[]},{},'').status,'pending');
   assert.equal(decideProductMatch({visual:'different',checks:[],differences:['different tooth construction']},reference,listing).status,'different');
-});
-test('cloud exclusion requires supported visible subject evidence rather than a listing-only different verdict',()=>{
-  const visualChecks=['shape','construction','color'].map(key=>({key,status:'same',evidence:'same visible subject detail'}));
-  const raw={visual:'different',visualChecks,differences:['listed capacity differs'],checks};
-  const same=cloudImageComparison(raw);
-  assert.equal(same.visual,'identical');assert.deepEqual(same.differences,[]);
-  assert.equal(decideProductMatch(same,reference,listing).status,'visual-match');
-  assert.equal(cloudImageComparison({...raw,visualChecks:[]}).visual,'uncertain');
-  const different=cloudImageComparison({...raw,visualChecks:[...visualChecks,{key:'construction',status:'different',evidence:'reference has straight teeth, candidate has curved teeth'}]});
-  assert.equal(decideProductMatch(different,reference,listing).status,'different');
 });

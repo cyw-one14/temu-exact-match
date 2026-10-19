@@ -1,6 +1,7 @@
 import {readFile,writeFile,readdir,mkdir,copyFile,cp,lstat,rm} from 'node:fs/promises';
 import path from 'node:path';import {fileURLToPath} from 'node:url';
 import {prepareNativeAssets,nativeAssets} from './prepare-native-assets.mjs';
+import {prepareModels} from './prepare-models.mjs';
 import {copyNativeDependencies} from './copy-native-dependencies.mjs';
 import {APP_ID,fileHash,verifyDistribution} from './distribution.mjs';
 import {writeZip} from './zip.mjs';
@@ -8,6 +9,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 const root=fileURLToPath(new URL('../',import.meta.url));
 export async function packageNative(){
+  await prepareModels();
   await prepareNativeAssets();
   const {version}=JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));
   if(!/^\d+\.\d+\.\d+$/.test(version))throw Error('Invalid distribution version');
@@ -23,15 +25,15 @@ export async function packageNative(){
   for(const name of roots)await copy('extension/'+name);
   for(const directory of ['server','shared'])for(const name of await readdir(path.join(root,directory)))if(/\.(?:mjs|py|txt|html|css|js)$/.test(name))await copy(directory+'/'+name);
   for(const name of ['service-runtime','service-control','service-autostart','service-watchdog','watchdog-policy','service-shortcut','distribution','install-local'])await copy('scripts/'+name+'.mjs');
-  await copy('browser/photo-cache.mjs');
   await copy('package.json');await copy('安装说明.md');
   await copy('native/runtime-lock.json');
-  for(const row of JSON.parse(await readFile(path.join(root,'browser/model-lock.json'),'utf8')).files)await copy('runtime/'+row.path,path.join(root,'extension',row.path));
+  await copy('native/model-lock.json');
+  for(const row of JSON.parse(await readFile(path.join(root,'native/model-lock.json'),'utf8')).files)await copy('runtime/'+row.path,path.join(root,'native',row.path));
   const pythonRoot=path.join(nativeAssets,'python');
   await cp(pythonRoot,path.join(stage,'runtime/python'),{recursive:true,filter:file=>!path.relative(pythonRoot,file).split(path.sep).some(part=>part==='__pycache__'||/\.pyc$/.test(part))});
   await cp(path.join(nativeAssets,'node'),path.join(stage,'runtime/node'),{recursive:true});
   for(const name of ['vcruntime140.dll','vcruntime140_1.dll'])await copy('runtime/node/'+name,path.join(nativeAssets,'python',name));
-  await cp(path.join(root,'browser/licenses'),path.join(stage,'licenses'),{recursive:true});
+  await cp(path.join(root,'native/licenses'),path.join(stage,'licenses'),{recursive:true});
   const dependencies=await copyNativeDependencies(root,stage);
   // Exercise the copied dependency closure using the shipped runtime. A hash
   // inventory alone cannot detect missing platform-specific optional packages.

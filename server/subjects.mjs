@@ -22,8 +22,7 @@ export function prepareSubjects(){
   modelsPromise=(async()=>{
     const lib=await import('@huggingface/transformers');
     configureNative(lib);
-    lib.env.cacheDir=fileURLToPath(new URL('../.cache/models/',import.meta.url));
-    const progress_callback=event=>{if(event.status==='progress'){subjectState.message='下载主体模型 '+event.file;subjectState.progress=Number.isFinite(event.progress)?Math.round(event.progress):null;}};
+    const progress_callback=event=>{if(event.status==='progress'){subjectState.message='加载本机主体模型 '+event.file;subjectState.progress=Number.isFinite(event.progress)?Math.round(event.progress):null;}};
     const [segment,segmentProcessor,featureModels]=await Promise.all([
       lib.AutoModel.from_pretrained(SUBJECT_MODELS.segment.id,{revision:SUBJECT_MODELS.segment.revision,dtype:'fp32',device:nativeDevice,session_options:sessionOptions,progress_callback}),
       lib.AutoProcessor.from_pretrained(SUBJECT_MODELS.segment.id,{revision:SUBJECT_MODELS.segment.revision}),prepareFeatures()
@@ -36,7 +35,7 @@ export function prepareSubjects(){
 export function prepareFeatures(){
   if(featuresPromise)return featuresPromise;
   featuresPromise=(async()=>{
-    const lib=await import('@huggingface/transformers');configureNative(lib);lib.env.cacheDir=fileURLToPath(new URL('../.cache/models/',import.meta.url));
+    const lib=await import('@huggingface/transformers');configureNative(lib);
     const features=await lib.AutoModel.from_pretrained(SUBJECT_MODELS.features.id,{revision:SUBJECT_MODELS.features.revision,dtype:'q8',device:'cpu',session_options:sessionOptions});
     const featureProcessor=await lib.AutoProcessor.from_pretrained(SUBJECT_MODELS.features.id,{revision:SUBJECT_MODELS.features.revision});
     return {features,featureProcessor,RawImage:lib.RawImage};

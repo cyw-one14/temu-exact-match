@@ -1,5 +1,6 @@
 # Dependencies, downloaded models, local runtimes and generated files
 node_modules/
+native/models/
 .cache/
 dist/
 extension/vendor/

@@ -1,9 +1,9 @@
 import http from 'node:http';
-import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {readFile,mkdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {normalizeImage,MAX_IMAGE_BYTES,sameProductImageAsset} from './images.mjs';
-import {modelState,prepareModel,imageBuffer,localSearchPhrase,localCompare,cloudProfile,cloudCompare,comparePixels,pageCompare,serial} from './vision.mjs';
+import {imageBuffer,localCompare,comparePixels,pageCompare,serial} from './vision.mjs';
 import {subjectState,prepareSubjects,subjectDescriptor,compareDescriptors,compareForegroundColors} from './subjects.mjs';
 import {fastFeatureState,prepareFastFeatures,closeFastFeatures,compareReferenceShape} from './fast-features.mjs';
 import {isProductMatch,listingSpecs} from '../shared/core.mjs';
@@ -13,20 +13,16 @@ import {compareForegroundOutlines} from './outline-match.mjs';
 import {attentionState,prepareAttention} from './product-attention.mjs';
 import {recordSubjectResult} from './match-diagnostics.mjs';
 import {NATIVE_REVISION,nativeDevice,nativeThreads} from './native-runtime.mjs';
-import {PhotoCache} from '../browser/photo-cache.mjs';
+import {PhotoCache} from './photo-cache.mjs';
 
 export const PORT=Number(process.env.TEMU_MATCH_PORT || 43187);
 const ROOT=new URL('../',import.meta.url);
-const configURL=new URL('.local-config.json',ROOT);
 const manifest=JSON.parse(await readFile(new URL('extension/manifest.json',ROOT),'utf8'));
 if(!manifest.key) throw new Error('请先运行 node scripts/init-key.mjs');
 export const extensionId=[...createHash('sha256').update(Buffer.from(manifest.key,'base64')).digest().subarray(0,16)].map(n=>String.fromCharCode(97+(n>>4),97+(n&15))).join('');
 const installationId=createHash('sha256').update(fileURLToPath(ROOT).toLowerCase()).digest('hex').slice(0,20);
 const extensionOrigin='chrome-extension://'+extensionId;
 const localOrigin='http://127.0.0.1:'+PORT;
-let config={engine:'local',baseUrl:'https://api.openai.com/v1',model:'gpt-4.1-mini',apiKey:''};
-try{Object.assign(config,JSON.parse(await readFile(configURL,'utf8')));}catch{}
-config.engine='local';
 const imageCache=new Map();
 const photos=new PhotoCache(comparePixels),references=new Map();
 function referenceBuffer(data){if(!references.has(data)){references.set(data,imageBuffer(data));if(references.size>2)references.delete(references.keys().next().value);}return references.get(data);}
@@ -97,7 +93,7 @@ export const server=http.createServer(async(req,res)=>{
     res.setHeader('Content-Type','application/json; charset=utf-8');
     if(req.method==='GET' && path==='/health'){
       const model={...subjectState};if(model.state==='ready'&&(fastFeatureState.state!=='ready'||attentionState.state!=='ready')){model.state=fastFeatureState.state==='unavailable'||attentionState.state==='unavailable'?'error':'loading';model.message='正在准备本机细节与人体关注核验';}
-      res.end(JSON.stringify({ok:true,version:manifest.version,runtime:'native-local-v1',engineRevision:NATIVE_REVISION,installationId,acceleration:{device:nativeDevice,threads:nativeThreads,segmentation:'BiRefNet-lite512 fp32'},matchingPolicy:'title-groups-outline-v16',engine:'local',configured:true,model,productAttention:attentionState,fastFeatures:fastFeatureState,diagnosticModel:modelState,extensionId}));return;
+      res.end(JSON.stringify({ok:true,version:manifest.version,runtime:'native-local-v1',engineRevision:NATIVE_REVISION,installationId,acceleration:{device:nativeDevice,threads:nativeThreads,segmentation:'BiRefNet-lite512 fp32'},matchingPolicy:'title-groups-outline-v16',engine:'local',configured:true,model,productAttention:attentionState,fastFeatures:fastFeatureState,extensionId}));return;
     }
     if((!accepted&&!sameOriginRead) || req.headers['x-temu-client']!=='exact-match')throw Object.assign(new Error('请从插件或本机设置页面访问'),{status:403});
     if(req.method==='GET' && path==='/config'){
@@ -108,17 +104,6 @@ export const server=http.createServer(async(req,res)=>{
     if(path==='/prepare'){
       await prepareNative();res.end(JSON.stringify({ok:true,model:subjectState}));return;
     }
-    if(path==='/config'){
-      if(body.engine!=='local')throw new Error('此版本仅在本机核对，不使用云端识别');
-      const base=new URL(body.baseUrl||config.baseUrl);
-      if(base.protocol!=='https:' && !(base.protocol==='http:'&&['127.0.0.1','localhost'].includes(base.hostname)))throw new Error('API 地址必须为 HTTPS 或本机地址');
-      if(base.username||base.password||base.search||base.hash)throw new Error('API 地址格式无效');
-      const nextBase=base.href.replace(/\/$/,'');
-      config={engine:body.engine,baseUrl:nextBase,model:String(body.model||config.model).trim().slice(0,150),apiKey:typeof body.apiKey==='string'&&body.apiKey?body.apiKey:(nextBase===config.baseUrl?config.apiKey:'')};
-      if(body.clearKey)config.apiKey='';
-      await writeFile(configURL,JSON.stringify(config,null,2),{mode:0o600});
-      res.end(JSON.stringify({ok:true,engine:config.engine,hasKey:Boolean(config.apiKey)}));return;
-    }
     const specs=body.referenceSpecs||{};
     if(path==='/prefetch'){
       for(const url of [...new Set(Array.isArray(body.images)?body.images:[])].filter(url=>typeof url==='string').slice(0,3))downloadImage(url).catch(()=>{});
@@ -126,11 +111,6 @@ export const server=http.createServer(async(req,res)=>{
     }
     if(path==='/image'){
       const image=await downloadImage(body.imageUrl);res.end(JSON.stringify({ok:true,dataUrl:image.dataUrl,sourceFormat:image.sourceFormat}));return;
-    }
-    if(path==='/profile'){
-      const buffer=imageBuffer(body.referenceImage);
-      const result=await serial(()=>config.engine==='cloud'?cloudProfile(config,body.referenceImage,specs):localSearchPhrase(buffer,specs));
-      res.end(JSON.stringify({ok:true,profile:result}));return;
     }
     if(path==='/compare'){
       const reference=referenceBuffer(body.referenceImage);
