@@ -4,9 +4,12 @@ import {fileURLToPath} from 'node:url';
 import {descriptorCache} from './descriptor-cache.mjs';
 import {ATTENTION_REVISION,identifyAttention,productRegionHint} from './product-attention.mjs';
 import {nearestPatches} from './descriptor-match.mjs';
-import {configureNative,nativeDevice,sessionOptions,NATIVE_REVISION} from './native-runtime.mjs';
+import {FeatureOutputCache} from './feature-output-cache.mjs';
+import {configureNative,nativeDevice,NATIVE_REVISION} from './native-runtime.mjs';
+import {prepareNativeModel} from './native-model-client.mjs';
+import {SUBJECT_MODELS} from './native-model-specs.mjs';
 
-export const SUBJECT_MODELS={segment:{id:'studioludens/birefnet-lite-512',revision:'962e67969ec6acec9c19fab76acee4f5e22e990c'},features:{id:'Xenova/dinov2-small',revision:'c2bb04a51fab207c420665f1946016107bffc701'}};
+export {SUBJECT_MODELS};
 export const subjectState={state:'idle',message:'主体比对模型尚未加载',progress:null};
 let modelsPromise,featuresPromise;
 const cache=new Map();
@@ -14,6 +17,7 @@ let extractionQueue=Promise.resolve();
 const attentionDirectory=fileURLToPath(new URL('../.cache/subjects-attention-'+NATIVE_REVISION+'-'+nativeDevice+'/',import.meta.url));
 const attentionCache=new Map();
 const layoutCache=new Map();
+const featureOutputs=new FeatureOutputCache();
 function failedMetrics(metrics,rules){return rules.filter(([key,,required])=>metrics[key]<required).map(([key,label,required])=>({key,label,actual:metrics[key],required}));}
 
 export function prepareSubjects(){
@@ -24,7 +28,7 @@ export function prepareSubjects(){
     configureNative(lib);
     const progress_callback=event=>{if(event.status==='progress'){subjectState.message='加载本机主体模型 '+event.file;subjectState.progress=Number.isFinite(event.progress)?Math.round(event.progress):null;}};
     const [segment,segmentProcessor,featureModels]=await Promise.all([
-      lib.AutoModel.from_pretrained(SUBJECT_MODELS.segment.id,{revision:SUBJECT_MODELS.segment.revision,dtype:'fp32',device:nativeDevice,session_options:sessionOptions,progress_callback}),
+      prepareNativeModel('segment',lib.Tensor,progress_callback),
       lib.AutoProcessor.from_pretrained(SUBJECT_MODELS.segment.id,{revision:SUBJECT_MODELS.segment.revision}),prepareFeatures()
     ]);
     subjectState.state='ready';subjectState.message='主体分割与特征比对已就绪';subjectState.progress=100;
@@ -36,7 +40,7 @@ export function prepareFeatures(){
   if(featuresPromise)return featuresPromise;
   featuresPromise=(async()=>{
     const lib=await import('@huggingface/transformers');configureNative(lib);
-    const features=await lib.AutoModel.from_pretrained(SUBJECT_MODELS.features.id,{revision:SUBJECT_MODELS.features.revision,dtype:'q8',device:'cpu',session_options:sessionOptions});
+    const features=await prepareNativeModel('features',lib.Tensor);
     const featureProcessor=await lib.AutoProcessor.from_pretrained(SUBJECT_MODELS.features.id,{revision:SUBJECT_MODELS.features.revision});
     return {features,featureProcessor,RawImage:lib.RawImage};
   })().catch(error=>{featuresPromise=null;throw error;});return featuresPromise;
@@ -58,11 +62,15 @@ export function compareDescriptors(a,b){
   return {valid:true,...metrics,matched,failedChecks,reason:matched?'主体整体特征、局部细节与颜色分布一致':'主体特征尚不足以自动确认外观同款'};
 }
 
-async function extract(buffer){
+async function extract(buffer,{signal}={}){
+  signal?.throwIfAborted();
   const {segment,segmentProcessor,features,featureProcessor,RawImage}=await prepareSubjects();
+  signal?.throwIfAborted();
   const image=await RawImage.fromBlob(new Blob([await sharp(buffer).rotate().resize(1024,1024,{fit:'inside',withoutEnlargement:true}).png().toBuffer()]));
   const inputs=await segmentProcessor(image);
+  signal?.throwIfAborted();
   const outputs=await segment({input_image:inputs.pixel_values});
+  signal?.throwIfAborted();
   const maskTensor=(outputs.logits||outputs.output_image)[0].sigmoid().mul(255).to('uint8');
   const mask=await RawImage.fromTensor(maskTensor).resize(image.width,image.height);
   let left=image.width,top=image.height,right=-1,bottom=-1,count=0;
@@ -72,15 +80,17 @@ async function extract(buffer){
   const rgba=image.clone();rgba.putAlpha(mask);
   const bounds={left,top,width:right-left+1,height:bottom-top+1};
   const cropped=await sharp(Buffer.from(rgba.data),{raw:{width:rgba.width,height:rgba.height,channels:rgba.channels}}).extract(bounds).resize(224,224,{fit:'contain',background:'#ffffff00'}).png().toBuffer();
+  signal?.throwIfAborted();
   return {...await describeCrop(cropped),coverage,bounds,cropped};
 }
 
 async function describeCrop(cropped,attention=null){
   const {features,featureProcessor,RawImage}=await prepareFeatures();
   const neutral=await sharp(cropped).flatten({background:'#fff'}).png().toBuffer();
-  const subject=await RawImage.fromBlob(new Blob([neutral]));
-  const featureInputs=await featureProcessor(subject);
-  const featureOutput=await features(featureInputs);
+  const featureOutput=await featureOutputs.get(neutral,async()=>{
+    const subject=await RawImage.fromBlob(new Blob([neutral]));
+    return features(await featureProcessor(subject));
+  });
   const hidden=featureOutput.last_hidden_state;
   let embedding=Array.from(featureOutput.pooler_output?.data||hidden.data.slice(0,hidden.dims.at(-1)));
   const size=hidden.dims.at(-1),grid=Math.round(Math.sqrt(hidden.dims[1]-1)),patches=[],positions=[];
@@ -152,14 +162,15 @@ async function foregroundRegions(descriptor){
 }
 
 function attentionRecord(value){return value.focusMode===ATTENTION_REVISION&&value.attention?.revision===ATTENTION_REVISION&&['applied','preserved'].includes(value.attention.status)&&Number.isFinite(value.attention.reducedFraction)&&value.attention.reducedFraction>=0&&value.attention.reducedFraction<=.55&&typeof value.attentionWeights==='string'&&Buffer.from(value.attentionWeights,'base64').length===224*224&&Array.isArray(value.positions)&&value.positions.length===value.patches?.length&&value.positions.every(point=>Array.isArray(point)&&point.length===2&&point.every(n=>Number.isFinite(n)&&n>=0&&n<=1));}
-async function attentionDescriptor(descriptor,text){
+async function attentionDescriptor(descriptor,text,{signal}={}){
+  signal?.throwIfAborted();
   const hint=productRegionHint(text),key=createHash('sha256').update(ATTENTION_REVISION+':'+hint).update(descriptor.cropped).digest('hex');
   if(attentionCache.has(key))return attentionCache.get(key);
-  const result=await descriptorCache(key,async()=>describeCrop(descriptor.cropped,await identifyAttention(descriptor.cropped,hint)),{directory:attentionDirectory,validate:attentionRecord});
+  const result=await descriptorCache(key,async()=>{signal?.throwIfAborted();const attention=await identifyAttention(descriptor.cropped,hint);signal?.throwIfAborted();return describeCrop(descriptor.cropped,attention);},{directory:attentionDirectory,validate:attentionRecord});
   if(attentionCache.size>=256)attentionCache.delete(attentionCache.keys().next().value);attentionCache.set(key,result);return result;
 }
-export async function instanceReference(descriptor,text=''){
-  const attended=await attentionDescriptor(descriptor,text);
+export async function instanceReference(descriptor,text='',options={}){
+  const attended=await attentionDescriptor(descriptor,text,options);options.signal?.throwIfAborted();
   // A predominantly human region without enough product evidence is not a
   // commodity template. Gloves are protected by the product semantic map.
   const info=attended.attention;
@@ -180,25 +191,32 @@ async function orientedAttention(descriptor,mirror,rotation){
   if(attentionCache.size>=256)attentionCache.delete(attentionCache.keys().next().value);attentionCache.set(key,result);return result;
 }
 
-export async function subjectDescriptor(buffer){
+export async function subjectDescriptor(buffer,options={}){
+  options.signal?.throwIfAborted();
   const key=createHash('sha256').update(buffer).digest('hex');
   if(cache.has(key)){const value=cache.get(key);cache.delete(key);cache.set(key,value);return value;}
   const task=extractionQueue.then(async()=>{
+    options.signal?.throwIfAborted();
     if(cache.has(key))return cache.get(key);
-    const result=await descriptorCache(key,()=>extract(buffer));if(cache.size>=256)cache.delete(cache.keys().next().value);cache.set(key,result);return result;
+    const result=await descriptorCache(key,()=>extract(buffer,options));options.signal?.throwIfAborted();if(cache.size>=256)cache.delete(cache.keys().next().value);cache.set(key,result);return result;
   });
   extractionQueue=task.catch(()=>{});return task;
 }
+export async function prepareReferenceFeatures(buffer,text='',{signal}={}){
+  signal?.throwIfAborted();const descriptor=await subjectDescriptor(buffer,{signal});
+  signal?.throwIfAborted();if(descriptor.valid)await instanceReference(descriptor,text,{signal});
+  signal?.throwIfAborted();
+}
 export async function compareSubjects(reference,candidate,options={}){
   options.signal?.throwIfAborted();
-  const [baseA,baseB]=await Promise.all([subjectDescriptor(reference),subjectDescriptor(candidate)]);
+  const [baseA,baseB]=await Promise.all([subjectDescriptor(reference,options),subjectDescriptor(candidate,options)]);
   return comparePreparedSubjects(baseA,baseB,options);
 }
 export async function comparePreparedSubjects(baseA,baseB,options={}){
   options.signal?.throwIfAborted();
   let a=baseA,b=baseB,attention={status:'preserved',applied:false,reason:'主体提取不完整，未调整关注区域'},focused=false;
   if(a.valid&&b.valid)try{
-    const attendedA=await attentionDescriptor(a,options.referenceText||''),attendedB=await attentionDescriptor(b,options.candidateText||'');
+    const attendedA=await attentionDescriptor(a,options.referenceText||'',options),attendedB=await attentionDescriptor(b,options.candidateText||'',options);
     focused=attendedA.attention.applied||attendedB.attention.applied;
     attention={status:focused?'applied':'preserved',applied:focused,reference:attendedA.attention,candidate:attendedB.attention,reason:focused?'人体识别与颜色共同支持的区域已降权；原图与前景保持原样':'未找到可可靠降权的人体区域，原区域保持参与核对'};
     if(focused){a=attendedA;b=attendedB;}
@@ -251,10 +269,10 @@ export function cachedSubjectComparison(reference,candidate){
   return a&&b?{...compareDescriptors(a,b),referencePreview:a.preview,candidatePreview:b.preview,model:'BiRefNet-lite + DINOv2-small'}:null;
 }
 export async function compareForegroundColors(reference,candidate,options={}){
-  const [a,b]=await Promise.all([subjectDescriptor(reference),subjectDescriptor(candidate)]);
+  options.signal?.throwIfAborted();const [a,b]=await Promise.all([subjectDescriptor(reference,options),subjectDescriptor(candidate,options)]);
   if(!a.valid||!b.valid)return foregroundColorEvidence(a,b);
-  const attendedA=await attentionDescriptor(a,options.referenceText||'');
-  const attendedB=await attentionDescriptor(b,options.candidateText||'');
+  const attendedA=await attentionDescriptor(a,options.referenceText||'',options);
+  const attendedB=await attentionDescriptor(b,options.candidateText||'',options);options.signal?.throwIfAborted();
   const result=foregroundColorEvidence(attendedA,attendedB);
   return {...result,scope:'product-attention-foreground',attention:{reference:attendedA.attention,candidate:attendedB.attention},reason:'分割前景内的商品关注颜色；仅降低明确人体区域权重，模糊区域保留，不是同款概率'};
 }

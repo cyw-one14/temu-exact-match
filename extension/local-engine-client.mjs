@@ -15,7 +15,7 @@ export class LocalEngineClient{
   async fetchJSON(path,payload,signal){
     const response=await this.fetchService(base+path,{method:payload===undefined?'GET':'POST',credentials:'omit',redirect:'error',headers:{'X-Temu-Client':'exact-match',...(payload===undefined?{}:{'Content-Type':'application/json'})},...(payload===undefined?{}:{body:payload}),signal});
     const result=await response.json();signal.throwIfAborted();
-    if(response.ok===false||result.ok===false)throw Error(result.error||'本机识别未完成');this.validate(path,result);return result;
+    if(response.ok===false||result.ok===false)throw Object.assign(Error(result.error||'本机识别未完成'),result.serviceUnavailable===true?{serviceUnavailable:true}:{});this.validate(path,result);return result;
   }
   async waitForRecovery(signal){
     const deadline=Date.now()+this.recoveryTimeoutMs;

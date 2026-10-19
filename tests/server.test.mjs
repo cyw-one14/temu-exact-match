@@ -30,6 +30,15 @@ test('invalid images do not invoke inference',async()=>{
   const response=await fetch(base+'/compare',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Temu-Client':'exact-match'},body:JSON.stringify({referenceImage:'data:text/html;base64,WA==',imageUrl:'https://img.kwcdn.com/not-requested.jpg'})});
   assert.equal(response.status,400);assert.equal((await response.json()).ok,false);
 });
+
+test('reference preparation rejects invalid data and external URLs before model work',async()=>{
+  const before=JSON.stringify(subjectState);
+  for(const referenceImage of ['data:text/html;base64,WA==','http://127.0.0.1/not-a-product']){
+    const response=await fetch(base+'/prefetch',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Temu-Client':'exact-match'},body:JSON.stringify({referenceImage})});
+    assert.equal(response.status,400);assert.equal((await response.json()).ok,false);
+  }
+  assert.equal(JSON.stringify(subjectState),before);
+});
 test('provider configuration never returns saved API key values',async()=>{
   const response=await fetch(base+'/config',{headers:{Origin:origin,'X-Temu-Client':'exact-match'}});
   assert.equal(response.status,200);const config=await response.json();assert.equal(Object.hasOwn(config,'apiKey'),false);

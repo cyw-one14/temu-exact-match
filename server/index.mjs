@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {normalizeImage,MAX_IMAGE_BYTES,sameProductImageAsset} from './images.mjs';
 import {imageBuffer,localCompare,comparePixels,pageCompare,serial} from './vision.mjs';
-import {subjectState,prepareSubjects,subjectDescriptor,compareDescriptors,compareForegroundColors} from './subjects.mjs';
+import {subjectState,prepareSubjects,subjectDescriptor,compareDescriptors,compareForegroundColors,prepareReferenceFeatures} from './subjects.mjs';
 import {fastFeatureState,prepareFastFeatures,closeFastFeatures,compareReferenceShape} from './fast-features.mjs';
 import {isProductMatch,listingSpecs} from '../shared/core.mjs';
 import {titleMatchEvidence} from '../shared/title-match.mjs';
@@ -14,6 +14,7 @@ import {attentionState,prepareAttention} from './product-attention.mjs';
 import {recordSubjectResult} from './match-diagnostics.mjs';
 import {NATIVE_REVISION,nativeDevice,nativeThreads} from './native-runtime.mjs';
 import {PhotoCache} from './photo-cache.mjs';
+import {nativeModelHealth,closeNativeModels} from './native-model-client.mjs';
 
 export const PORT=Number(process.env.TEMU_MATCH_PORT || 43187);
 const ROOT=new URL('../',import.meta.url);
@@ -93,6 +94,7 @@ export const server=http.createServer(async(req,res)=>{
     res.setHeader('Content-Type','application/json; charset=utf-8');
     if(req.method==='GET' && path==='/health'){
       const model={...subjectState};if(model.state==='ready'&&(fastFeatureState.state!=='ready'||attentionState.state!=='ready')){model.state=fastFeatureState.state==='unavailable'||attentionState.state==='unavailable'?'error':'loading';model.message='正在准备本机细节与人体关注核验';}
+      const worker=nativeModelHealth();if(worker.state==='error'){model.state='error';model.message=worker.message;}
       res.end(JSON.stringify({ok:true,version:manifest.version,runtime:'native-local-v1',engineRevision:NATIVE_REVISION,installationId,acceleration:{device:nativeDevice,threads:nativeThreads,segmentation:'BiRefNet-lite512 fp32'},matchingPolicy:'title-groups-outline-v16',engine:'local',configured:true,model,productAttention:attentionState,fastFeatures:fastFeatureState,extensionId}));return;
     }
     if((!accepted&&!sameOriginRead) || req.headers['x-temu-client']!=='exact-match')throw Object.assign(new Error('请从插件或本机设置页面访问'),{status:403});
@@ -107,6 +109,11 @@ export const server=http.createServer(async(req,res)=>{
     const specs=body.referenceSpecs||{};
     if(path==='/prefetch'){
       for(const url of [...new Set(Array.isArray(body.images)?body.images:[])].filter(url=>typeof url==='string').slice(0,3))downloadImage(url).catch(()=>{});
+      if(body.referenceImage){
+        const reference=String(body.referenceImage).startsWith('data:')?referenceBuffer(body.referenceImage):(await downloadImage(body.referenceImage)).buffer;
+        signal.throwIfAborted();
+        await serial(()=>prepareReferenceFeatures(reference,String(body.referenceTitle||'').slice(0,1000),{signal}));
+      }
       res.end(JSON.stringify({ok:true}));return;
     }
     if(path==='/image'){
@@ -142,10 +149,10 @@ export const server=http.createServer(async(req,res)=>{
         const alternativeErrors=[];
         const gallery=['public-jsonld','bound-current-product-gallery'].includes(body.referenceImageSource)?[...new Set(Array.isArray(body.referenceImages)?body.referenceImages:[])].filter(url=>typeof url==='string'&&!sameProductImageAsset(url,body.referenceImageUrl)).slice(0,3):[];
         if(!isProductMatch(result)&&gallery.length){
-          const anchor=await serial(()=>subjectDescriptor(reference));
+          const anchor=await serial(()=>subjectDescriptor(reference,{signal}));
           for(const imageUrl of gallery)try{
             signal.throwIfAborted();
-            const photo=await downloadImage(imageUrl),descriptor=await serial(()=>subjectDescriptor(photo.buffer));
+            const photo=await downloadImage(imageUrl),descriptor=await serial(()=>subjectDescriptor(photo.buffer,{signal}));
             const compatibility=compareDescriptors(anchor,descriptor);
             // Same-product provenance alone cannot introduce a different color,
             // accessory, category or unrelated image as a reference template.
@@ -170,24 +177,27 @@ export const server=http.createServer(async(req,res)=>{
       };
       const result=await groupedProductReview({titleEvidence,review,referenceSpecs:specs,candidateText:text,colors:async reviewed=>{
         const selected=reviewed.matchedImageUrl===body.imageUrl?candidate:await downloadImage(reviewed.matchedImageUrl);
-        return serial(()=>{signal.throwIfAborted();return compareForegroundColors(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text});});
+        return serial(()=>{signal.throwIfAborted();return compareForegroundColors(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text,signal});});
       },outlines:async reviewed=>{
         const selected=reviewed.matchedImageUrl===body.imageUrl?candidate:await downloadImage(reviewed.matchedImageUrl);
-        return serial(()=>{signal.throwIfAborted();return compareForegroundOutlines(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text});});
+        return serial(()=>{signal.throwIfAborted();return compareForegroundOutlines(reference,selected.buffer,{referenceText:imageOptions.referenceText,candidateText:text,signal});});
       }});
+      if(nativeModelHealth().state==='error')throw Error('本机计算线程中断，后台正在自动恢复');
       signal.throwIfAborted();if(PORT===43187)await recordSubjectResult(body,reference,candidate.buffer,result);
       res.end(JSON.stringify({ok:true,comparison:result}));return;
     }
     throw Object.assign(new Error('接口不存在'),{status:404});
   }catch(error){
     if(res.destroyed)return;
-    if(!res.headersSent){res.setHeader('Content-Type','application/json; charset=utf-8');res.writeHead(error.status||400);}
-    res.end(JSON.stringify({ok:false,error:String(error.message||'服务错误').slice(0,300)}));
+    const serviceUnavailable=nativeModelHealth().state==='error';
+    if(!res.headersSent){res.setHeader('Content-Type','application/json; charset=utf-8');res.writeHead(serviceUnavailable?503:error.status||400);}
+    res.end(JSON.stringify({ok:false,error:String(error.message||'服务错误').slice(0,300),...(serviceUnavailable?{serviceUnavailable:true}:{})}));
   }
 });
 
 if(process.argv[1]===fileURLToPath(import.meta.url)){
   server.on('close',closeFastFeatures);
+  server.on('close',closeNativeModels);
   if(process.env.TEMU_WATCHDOG==='1'){
     // A supervisor that is ended on its own must not leave an unsupervised
     // server occupying the port and blocking the colleague's desktop launcher.

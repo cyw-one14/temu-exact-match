@@ -50,11 +50,12 @@ export async function compareReferenceShape(template,candidate){return featureJo
 export async function comparePreparedOutlines(template,candidate,attention={}){
   return featureJob({operation:'outline-match',template:template.toString('base64'),candidate:candidate.toString('base64'),...attention});
 }
-export async function instanceFeatureCompare(reference,candidate,referenceText=''){
+export async function instanceFeatureCompare(reference,candidate,referenceText='',options={}){
+  options.signal?.throwIfAborted();
   await prepareFastFeatures();
-  const descriptor=await subjectDescriptor(reference);
+  const descriptor=await subjectDescriptor(reference,options);
   if(!descriptor.valid)return {matched:false,reason:'参考主体不完整，无法核验商品实例'};
-  const focused=await instanceReference(descriptor,referenceText);
+  const focused=await instanceReference(descriptor,referenceText,options);options.signal?.throwIfAborted();
   return comparePreparedInstances(descriptor.cropped,candidate,focused.attentionWeights);
 }
 async function featureJob(data){
@@ -67,11 +68,12 @@ async function featureJob(data){
     child.stdin.write(JSON.stringify({id,...data})+'\n');
   });
 }
-export async function fastFeatureCompare(reference,candidate){
+export async function fastFeatureCompare(reference,candidate,options={}){
+  options.signal?.throwIfAborted();
   // Do not extract the reference for an unavailable optional runtime.
   await prepareFastFeatures();
   if(fastFeatureState.state!=='ready')throw new Error('快速特征核验不可用');
-  const descriptor=await subjectDescriptor(reference);
+  const descriptor=await subjectDescriptor(reference,options);options.signal?.throwIfAborted();
   if(!descriptor.valid||!descriptor.cropped)return {matched:false,reason:'参考主体不完整，使用原主体模型'};
   return comparePreparedFeatures(descriptor.cropped,candidate);
 }

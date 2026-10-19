@@ -45,3 +45,8 @@ test('HTTP errors and a mismatched model version are never silently retried as r
   const stale=new LocalEngineClient({retryDelayMs:1,fetchService:async url=>{if(!url.endsWith('/health'))throw new TypeError('offline');return {ok:true,json:async()=>({engineRevision:'old',model:{state:'ready'}})};}});
   await assert.rejects(stale.request('/compare',{}),/版本需要更新/);
 });
+
+test('a declared native worker failure stays an unfinished service error without retrying HTTP failures',async()=>{
+  let calls=0;const client=new LocalEngineClient({fetchService:async()=>{calls++;return {ok:false,json:async()=>({ok:false,serviceUnavailable:true,error:'TEST model worker stopped'})};}});
+  await assert.rejects(client.request('/compare',{}),error=>error.serviceUnavailable===true&&/worker stopped/.test(error.message));assert.equal(calls,1);
+});

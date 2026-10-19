@@ -28,6 +28,7 @@ let resultsCollapsed=false,previewAnchor=null,previewPointer=null;
 let manualRecord=null,manualWarning='',manualReadEpoch=0;
 const pendingManual=new Map();
 const requestControllers=new Set();
+let referenceWarmup=null;
 const tempTabs=new Set();
 
 function status(message,error=false){if(storageWarning){if(!message.includes(storageWarning))message=storageWarning+(error?' '+message:'');error=true;}$('status').textContent=message;$('status').classList.toggle('error',error);$('status').hidden=!error&&!/^(已归为|已移到|已恢复自动|已复制|无法复制)/.test(message);}
@@ -106,6 +107,19 @@ async function api(path,body){
 function prefetchImages(items){
   const images=items.slice(0,3).map(item=>item.imageUrl).filter(url=>officialImage(url)||/^data:image\/(?:png|jpeg|webp);base64,/.test(url));
   if(images.length&&!cancelled)engineRequest('/prefetch',{images}).catch(()=>{});
+}
+function cancelReferenceWarmup(){referenceWarmup?.controller.abort();referenceWarmup=null;}
+function warmReference(){
+  const referenceImage=state.referenceImage,referenceTitle=state.referenceContext?.title||state.selection?.title||'';
+  if(cancelled||!referenceImage)return;
+  // Downloading this same selection changes URL -> data URL, not its identity.
+  // Keep its in-flight preparation; new selections/uploads create a new state.
+  if(referenceWarmup?.state===state&&!referenceWarmup.controller.signal.aborted)return;
+  cancelReferenceWarmup();const controller=new AbortController(),row={state,image:referenceImage,title:referenceTitle,controller};
+  referenceWarmup=row;requestControllers.add(controller);
+  // Start preparation alongside normal page loading; it never classifies items,
+  // changes progress, or blocks opening the search tab. Stop/replace aborts it.
+  engineRequest('/prefetch',{referenceImage,referenceTitle},{signal:controller.signal}).catch(()=>{if(referenceWarmup===row)referenceWarmup=null;}).finally(()=>requestControllers.delete(controller));
 }
 async function save(){
   state.referenceSpecs=getSpecs();
@@ -593,6 +607,7 @@ async function startProvider(){
   const captured=state.referenceContext?.productId===selection.productId?state.referenceContext:null;
   const capturedTitle=providerListingTitle(captured?.title);
   const title=capturedTitle||providerListingTitle(selection.title),titleSource=capturedTitle?'captured-product':selection.titleSource||'';
+  warmReference();
   const url=providerSearchURL({...selection,imageUrl,title});
   const tab=await chrome.tabs.create({url,active:false,windowId});
   if(state!==current)return;
@@ -691,6 +706,7 @@ async function readProvider(manual=false,{priceOnly=false}={}){
 }
 async function acceptSelection(value){
   if(value.windowId!==windowId||state.selection?.id===value.id)return;
+  cancelReferenceWarmup();
   queuedSelection=value;
   if(busy){cancelled=true;for(const controller of requestControllers)controller.abort();return;}
   if(selectionProcessing)return;
@@ -782,6 +798,7 @@ async function compareItems({automatic=false}={}){
   setActivity('images','正在准备参考图与已读取的商品信息…');
   await ensureReferenceContext();
   await ensureReferenceImage();
+  warmReference();
   const prefs=(await chrome.storage.local.get('preferences')).preferences||{};
   const maxCandidates=Math.max(1,Math.min(40,Number(prefs.maxCandidates)||12));
   state.referenceSpecs=getSpecs();
@@ -932,7 +949,7 @@ $('upload').addEventListener('change',()=>run(async()=>{
   const file=$('upload').files?.[0];if(!file)return;
   if(file.size>8_000_000||!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('请使用 8 MB 以下的 PNG、JPG 或 WebP 图片');
   const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('图片读取失败'));reader.readAsDataURL(file);});
-  stopProviderWatch();autoPending=false;autoPaused=false;activity=null;analysisError='';waitingForService=false;resultTab='same';resultsCollapsed=false;closeImagePreview();state={...emptyState(),referenceImage:data,referenceSpecs:getSpecs()};await loadManualMemory();
+  cancelReferenceWarmup();stopProviderWatch();autoPending=false;autoPaused=false;activity=null;analysisError='';waitingForService=false;resultTab='same';resultsCollapsed=false;closeImagePreview();state={...emptyState(),referenceImage:data,referenceSpecs:getSpecs()};await loadManualMemory();
   render();status('图片已上传，图搜结果出现后工具会自动核对。');
 }));
 $('replace-image').addEventListener('click',()=>{$('upload').value='';$('upload').click();});
@@ -991,7 +1008,7 @@ for(const button of document.querySelectorAll('[data-result-tab]')){
 }
 $('prepare-model').addEventListener('click',()=>run(async()=>{await api('/prepare',{});await checkHealth();status('本机助手已就绪，可以查找商品。');}));
 $('export').addEventListener('click',()=>{
-  const data={version:'0.4.2',recognitionRuntime:'native-local-v1',engineRevision:ENGINE_REVISION,generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||state.imageSearchDiagnostics?.submittedInput||null,imageSearchDiagnostics:state.imageSearchDiagnostics,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
+  const data={version:'0.4.3',recognitionRuntime:'native-local-v1',engineRevision:ENGINE_REVISION,generatedAt:new Date().toISOString(),targetMarket:'us',coverage:'normally-loaded-search-results',siteWideComplete:false,collection:state.collection,collections:[...state.collectionHistory,...(state.collection?[state.collection]:[])],matchingPolicy:state.matchingPolicy,manualReferenceKey:state.manualReferenceKey,imageSearchInput:state.providerJob?.submittedInput||state.imageSearchDiagnostics?.submittedInput||null,imageSearchDiagnostics:state.imageSearchDiagnostics,candidateLimit:COLLECTION_LIMIT,keywordTopCount:10,reference:state.profile,referenceContext:state.referenceContext,referenceSpecs:getSpecs(),pages:state.pages,keywords:bestSellerKeywords(state.items),retrievalQueries:keywordMetrics(state.keywords,state.items),products:state.items.map(item=>({...item,effectiveStatus:effectiveMatchStatus(item),keywordEvidence:isProductMatch(item)&&effectiveMatchStatus(item)!=='inferred-match'?listingKeywordEvidence(item):[],listingInfo:listingMetadata({title:item.title,text:item.detailsText||item.rawText||'',structuredSpecs:item.structuredSpecs,listingFields:item.listingFields,sourceUrl:item.sourceUrl,capturedAt:item.capturedAt})}))};
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const anchor=document.createElement('a');anchor.href=url;anchor.download='temu-exact-match-'+Date.now()+'.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });

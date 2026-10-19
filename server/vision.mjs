@@ -80,10 +80,10 @@ export async function localCompare(referenceBuffer,candidateBuffer,referenceSpec
   const pixels=options.photoComparison||await comparePixels(referenceBuffer,candidateBuffer,options);
   let fastMatch=null,instanceMatch=null;
   if(options.subjectMatching&&!pixels.samePhoto){
-    try{fastMatch=await fastFeatureCompare(referenceBuffer,candidateBuffer);}catch(error){fastMatch={matched:false,reason:'快速特征核验不可用，使用原主体模型',error:String(error.message||error).slice(0,160)};}
+    try{fastMatch=await fastFeatureCompare(referenceBuffer,candidateBuffer,options);}catch(error){fastMatch={matched:false,reason:'快速特征核验不可用，使用原主体模型',error:String(error.message||error).slice(0,160)};}
   }
   options.signal?.throwIfAborted();
-  if(options.subjectMatching&&!pixels.samePhoto&&!fastMatch?.matched)try{instanceMatch=await instanceFeatureCompare(referenceBuffer,candidateBuffer,options.referenceText);}catch(error){instanceMatch={matched:false,reason:'商品实例核验未完成，继续原主体复核',error:String(error.message||error).slice(0,120)};}
+  if(options.subjectMatching&&!pixels.samePhoto&&!fastMatch?.matched)try{instanceMatch=await instanceFeatureCompare(referenceBuffer,candidateBuffer,options.referenceText,options);}catch(error){instanceMatch={matched:false,reason:'商品实例核验未完成，继续原主体复核',error:String(error.message||error).slice(0,120)};}
   options.signal?.throwIfAborted();
   const subject=options.subjectMatching&&!pixels.samePhoto&&!fastMatch?.matched&&!instanceMatch?.matched?await compareSubjects(referenceBuffer,candidateBuffer,{referenceText:options.referenceText,candidateText,signal:options.signal}):null;
   const comparison={...pixels,fastMatch,instanceMatch,subject,checks:localSpecChecks(referenceSpecs,candidateText),differences:[],evidence:[pixels.pixelIdentical?'标准化图片像素一致':pixels.assetVerified?'同一官方商品图片资源，尺寸 / 格式转换后图像内容一致':pixels.reencodedPhoto?'完整图片纹理与全图局部内容一致，确认压缩 / 缩放同图副本':fastMatch?.matched?'SIFT 快速核验：至少 24 个几何一致点，匹配覆盖主体多个区域，整体颜色及局部图像内容一致':instanceMatch?.matched?instanceMatch.reason:subject?.reason||'本地引擎无法确认这两张图片一致']};

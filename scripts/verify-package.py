@@ -43,7 +43,7 @@ with ZipFile(archive) as package:
         assert package.read('extension/' + name) == (root / 'extension' / name).read_bytes(), name
     for name in ['core', 'provider', 'prices', 'listing', 'title-match', 'collection']:
         assert package.read('extension/' + name + '.mjs') == (root / 'shared' / (name + '.mjs')).read_bytes()
-    for name in ['feature_worker.py', 'instance_match.py', 'outline_match.py', 'index.mjs', 'subjects.mjs', 'native-runtime.mjs']:
+    for name in ['feature_worker.py', 'instance_match.py', 'outline_match.py', 'index.mjs', 'subjects.mjs', 'native-runtime.mjs', 'native-model-specs.mjs', 'native-model-client.mjs', 'native-model-worker.mjs', 'native-tensors.mjs', 'feature-output-cache.mjs', 'photo-cache.mjs', 'vision.mjs']:
         assert package.read('server/' + name) == (root / 'server' / name).read_bytes()
     for name in ['service-runtime.mjs', 'service-control.mjs', 'service-autostart.mjs', 'service-shortcut.mjs', 'service-watchdog.mjs', 'watchdog-policy.mjs', 'install-local.mjs']:
         assert package.read('scripts/' + name) == (root / 'scripts' / name).read_bytes()
@@ -61,7 +61,7 @@ with ZipFile(archive) as package:
     assert package.read('native/model-lock.json') == (root / 'native/model-lock.json').read_bytes()
     assert not any(n.startswith('browser/') for n in names), 'retired browser engine must not be shipped'
     assert not any(n.startswith('node_modules/onnxruntime-node/bin/') and not n.startswith('node_modules/onnxruntime-node/bin/napi-v3/win32/x64/') for n in names)
-    assert b'studioludens/birefnet-lite-512' in package.read('server/subjects.mjs')
+    assert b'studioludens/birefnet-lite-512' in package.read('server/native-model-specs.mjs')
 with ZipFile(root / 'dist/temu-exact-match-extension.zip') as light:
     assert safe_names(light) == set(roots)
     for name in roots:
