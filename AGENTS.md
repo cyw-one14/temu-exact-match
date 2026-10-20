@@ -94,3 +94,9 @@
 - 2026-10-14增加当前Windows用户登录自启：scripts/service-autostart.mjs enable|disable|status管理Startup中的TEMU Exact Match Service.lnk，归属/路径不符不得覆盖或删除；实际启动仍走现有service-control.mjs，保持后台隐藏与进程复用，不改执行策略。关闭自启不停止当前服务，机器启动项不入Git。
 - 不根据测试用例通过宣称全品类准确率；真实梳子案例目前仍有多件参考/单件候选及细节对应不足的问题。
 - 红框手套样本仍是无法确认，见GLOVE-MATCH-DIAGNOSIS.md；未知品牌/规格不导致图像排除。保留标题或字段中能读到的页面描述，不将描述当已绑定SKU的实物规格。
+
+## 交付文件维护（2026-10-20）
+
+- 本次用户明确选择保留.cache/native-build-0.4.6及extension/vendor、python、licenses，只清理历史副本；旧扩展资源仅保留磁盘，当前安装包仍按native/extension-files.json白名单生成。
+- 0.4.0–0.4.5历史构建、旧测试安装及旧ZIP已清理。运行模型、Python环境、依赖、原始样本、有效诊断证据和配置/人工记忆保留；不要把构建副本删除量当作运行依赖可删的依据。
+- 同事交付文件为dist/temu-exact-match-0.4.6-windows-x64.zip；内含模型、运行时和安装程序。安装说明随包提供，开发用轻量扩展ZIP需要配套后台。
